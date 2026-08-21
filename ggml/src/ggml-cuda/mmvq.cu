@@ -837,7 +837,8 @@ static __global__ void mul_mat_vec_nvfp4_repacked_f32(
                     sum *= ggml_cuda_op_gelu_single(gate_sum);
                     break;
                 case GGML_GLU_OP_SWIGLU_OAI:
-                    sum = ggml_cuda_op_swiglu_oai_single(gate_sum, sum);
+                    sum = ggml_cuda_op_swiglu_oai_single(
+                        gate_sum, sum, fusion.swiglu_oai_alpha, fusion.swiglu_oai_limit);
                     break;
                 default:
                     sum *= gate_sum;
@@ -1201,7 +1202,8 @@ static __global__ void mul_mat_vec_q(
                                 result *= ggml_cuda_op_gelu_single(gate_value);
                                 break;
                             case GGML_GLU_OP_SWIGLU_OAI:
-                                result = ggml_cuda_op_swiglu_oai_single(gate_value, result);
+                                result = ggml_cuda_op_swiglu_oai_single(
+                                    gate_value, result, fusion.swiglu_oai_alpha, fusion.swiglu_oai_limit);
                                 break;
                             case GGML_GLU_OP_SWIGLU_CLAMP:
                                 result = ggml_cuda_op_swiglu_clamp_single(gate_value, result, glu_limit);
@@ -1917,7 +1919,8 @@ void ggml_cuda_mul_mat_vec_q(
             fusion_local.gate_scale = fusion->gate_scale->data;
         }
         fusion_local.glu_op = fusion->glu_op;
-        fusion_local.glu_limit = fusion->glu_limit;
+        fusion_local.swiglu_oai_alpha = fusion->swiglu_oai_alpha;
+        fusion_local.swiglu_oai_limit = fusion->swiglu_oai_limit;
     }
 
 #ifdef GGML_CUDA_CUTLASS
