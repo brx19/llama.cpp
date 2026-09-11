@@ -114,25 +114,29 @@ jobs:
         id: toolchain
         shell: pwsh
         run: |
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cl" 2>&1 | Select-String 'Version (\d+\.\d+\.\d+\.\d+)' | ForEach-Object {
-            "msvc_version=$($_.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          }
+          # MSVC version: query cl after sourcing vcvars (x64)
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $clOut = & cmd /c "`"$vcvars`" x64 >nul && cl 2>&1"
+          $m = [regex]::Match(($clOut -join "`n"), 'Version (\d+\.\d+\.\d+\.\d+)')
+          "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
           "cuda_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "cmake_version=$((cmake --version | Select-String 'version (\d+\.\d+\.\d+)').Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          $cmOut = & cmake --version
+          $m = [regex]::Match(($cmOut -join "`n"), 'version (\d+\.\d+\.\d+)')
+          "cmake_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           "ninja_version=$((ninja --version).Trim())" >> $env:GITHUB_OUTPUT
-          Write-Host "toolchain recorded"
+          Write-Host "toolchain: msvc=$(Get-Content $env:GITHUB_OUTPUT | Select-String msvc) cuda=$(Get-Content $env:GITHUB_OUTPUT | Select-String cuda_version)"
 
       - name: Configure (Release, SM120a)
         id: configure
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          $env:VCVARS = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ')" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -154,7 +158,8 @@ jobs:
         shell: pwsh
         run: |
           $jobs = [Math]::Max(1, [Environment]::ProcessorCount - 1)
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake --build build --config Release -j $jobs" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          & cmd /c "`"$vcvars`" x64 >nul && cmake --build build --config Release -j $jobs 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
           $proof = Select-String -Path $env:RUNNER_TEMP/build.log -Pattern 'sm_120a|120a' | Select-Object -First 5
           if ($proof) { $proof | ForEach-Object { Write-Host "ARCH-PROOF: $($_.Line)" } } else {
@@ -355,15 +360,19 @@ jobs:
         id: toolchain
         shell: pwsh
         run: |
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cl" 2>&1 | Select-String 'Version (\d+\.\d+\.\d+\.\d+)' | ForEach-Object {
-            "msvc_version=$($_.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          }
+          # MSVC version: query cl after sourcing vcvars (x64)
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $clOut = & cmd /c "`"$vcvars`" x64 >nul && cl 2>&1"
+          $m = [regex]::Match(($clOut -join "`n"), 'Version (\d+\.\d+\.\d+\.\d+)')
+          "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
           "cuda_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "cmake_version=$((cmake --version | Select-String 'version (\d+\.\d+\.\d+)').Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          $cmOut = & cmake --version
+          $m = [regex]::Match(($cmOut -join "`n"), 'version (\d+\.\d+\.\d+)')
+          "cmake_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           "ninja_version=$((ninja --version).Trim())" >> $env:GITHUB_OUTPUT
-          Write-Host "toolchain recorded"
+          Write-Host "toolchain: msvc=done cuda=done"
 
       - name: Configure (Release, SM120a)
         id: configure
@@ -372,7 +381,10 @@ jobs:
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ')" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
+          Write-Host "CMake args: $($cmakeArgs -join ' ')"
+          & cmd /c "`"$vcvars`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -394,7 +406,8 @@ jobs:
         shell: pwsh
         run: |
           $jobs = [Math]::Max(1, [Environment]::ProcessorCount - 1)
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake --build build --config Release -j $jobs" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          & cmd /c "`"$vcvars`" x64 >nul && cmake --build build --config Release -j $jobs 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
           $proof = Select-String -Path $env:RUNNER_TEMP/build.log -Pattern 'sm_120a|120a' | Select-Object -First 5
           if ($proof) { $proof | ForEach-Object { Write-Host "ARCH-PROOF: $($_.Line)" } } else {
@@ -590,15 +603,19 @@ jobs:
         id: toolchain
         shell: pwsh
         run: |
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cl" 2>&1 | Select-String 'Version (\d+\.\d+\.\d+\.\d+)' | ForEach-Object {
-            "msvc_version=$($_.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          }
+          # MSVC version: query cl after sourcing vcvars (x64)
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $clOut = & cmd /c "`"$vcvars`" x64 >nul && cl 2>&1"
+          $m = [regex]::Match(($clOut -join "`n"), 'Version (\d+\.\d+\.\d+\.\d+)')
+          "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
           "cuda_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          "cmake_version=$((cmake --version | Select-String 'version (\d+\.\d+\.\d+)').Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          $cmOut = & cmake --version
+          $m = [regex]::Match(($cmOut -join "`n"), 'version (\d+\.\d+\.\d+)')
+          "cmake_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           "ninja_version=$((ninja --version).Trim())" >> $env:GITHUB_OUTPUT
-          Write-Host "toolchain recorded"
+          Write-Host "toolchain: msvc=done cuda=done"
 
       - name: Configure (Release, SM120a, CUTLASS)
         id: configure
@@ -607,7 +624,10 @@ jobs:
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real','-DGGML_CUDA_CUTLASS=ON')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ')" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
+          Write-Host "CMake args: $($cmakeArgs -join ' ')"
+          & cmd /c "`"$vcvars`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -629,7 +649,8 @@ jobs:
         shell: pwsh
         run: |
           $jobs = [Math]::Max(1, [Environment]::ProcessorCount - 1)
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake --build build --config Release -j $jobs" 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          & cmd /c "`"$vcvars`" x64 >nul && cmake --build build --config Release -j $jobs 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
           $proof = Select-String -Path $env:RUNNER_TEMP/build.log -Pattern 'sm_120a|120a' | Select-Object -First 5
           if ($proof) { $proof | ForEach-Object { Write-Host "ARCH-PROOF: $($_.Line)" } } else {
