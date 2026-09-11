@@ -70,7 +70,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: ${{ fromJson(needs.expand.outputs.variants) }}
-    name: build (${{ matrix.variant }}, cuda-${{ env.CUDA_VERSION }}, sm120a)
+    name: build (${{ matrix.variant }}, cuda13.3, sm120a)
     steps:
       - name: Map variant to source branch
         id: map
