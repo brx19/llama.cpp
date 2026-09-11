@@ -132,7 +132,13 @@ jobs:
         id: configure
         shell: pwsh
         run: |
-          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
+          # NOTE: do NOT pass -DCMAKE_CUDA_ARCHITECTURES here. CMake's CUDA
+          # language enablement sets it to "native" (shadowing any -D cache
+          # value), and llama.cpp's ggml-cuda/CMakeLists.txt only auto-selects
+          # architectures (including 120a-real for CUDA >= 12.8) when the
+          # variable is left undefined and GGML_NATIVE=OFF. The verify step
+          # below checks that 120a-real appears in the resolved arch list.
+          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
@@ -393,7 +399,13 @@ jobs:
         id: configure
         shell: pwsh
         run: |
-          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
+          # NOTE: do NOT pass -DCMAKE_CUDA_ARCHITECTURES here. CMake's CUDA
+          # language enablement sets it to "native" (shadowing any -D cache
+          # value), and llama.cpp's ggml-cuda/CMakeLists.txt only auto-selects
+          # architectures (including 120a-real for CUDA >= 12.8) when the
+          # variable is left undefined and GGML_NATIVE=OFF. The verify step
+          # below checks that 120a-real appears in the resolved arch list.
+          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
@@ -655,7 +667,7 @@ jobs:
         id: configure
         shell: pwsh
         run: |
-          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real','-DGGML_CUDA_CUTLASS=ON')
+          $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DGGML_CUDA_CUTLASS=ON')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
