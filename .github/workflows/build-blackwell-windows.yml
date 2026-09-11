@@ -72,12 +72,18 @@ jobs:
         variant: ${{ fromJson(needs.expand.outputs.variants) }}
     name: build (${{ matrix.variant }}, cuda13.3, sm120a)
     env:
-      VARIANT: "${{ matrix.variant }}"
+      VARIANT: ${{ matrix.variant }}
     steps:
       - name: Map variant to source branch
         id: map
         shell: pwsh
         run: |
+          # Hard guard: the matrix value must have reached the job env.
+          # A literal value means ${{} } expressions were not substituted
+          # (e.g. the actions toolchain on this image cannot load) — fail fast.
+          if ($env:VARIANT -match '^\$\{\{' -or $env:VARIANT -eq "$_" -or $env:VARIANT -match 'matrix\.variant') {
+            throw "VARIANT env is not the matrix value: '$($env:VARIANT)'. Expression substitution failed on this runner image."
+          }
           switch ('$env:VARIANT') {
             'stock'   { $b = 'master' }
             'tma'     { $b = 'blackwell/tma' }
@@ -88,7 +94,7 @@ jobs:
           Write-Host "variant=$env:VARIANT branch=$b"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           repository: brx19/llama.cpp
           ref: ${{ steps.map.outputs.branch }}
