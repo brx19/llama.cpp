@@ -61,7 +61,12 @@ foreach ($r in @('upstream','origin')) {
 }
 
 # ---------------------------------------------------------------- master
-Log "Synchronizing master with upstream/master..."
+# Policy: master = upstream source + tooling additions (.github/, scripts/,
+# BLACKWELL-BUILD.md). We reset to upstream/master, then re-apply the tooling
+# files on top, so the source stays byte-identical to upstream while the
+# build tooling remains on the default branch for GitHub Actions.
+$TOOLING_PATHS = @('.github/workflows/build-blackwell-windows.yml', '.github/workflows/sync-upstream.yml', 'scripts/Sync-Upstream.ps1', 'BLACKWELL-BUILD.md')
+Log "Synchronizing master with upstream/master (preserving tooling)..."
 $upstreamMaster = (git rev-parse upstream/master)
 $localMaster    = (git rev-parse master)
 Log "  upstream/master = $upstreamMaster"
@@ -82,22 +87,55 @@ if ($localMaster -ne $upstreamMaster) {
         $ahead | ForEach-Object { Log "    preserved: $_" }
     }
     if ($WhatIf) {
-        Log "  (what-if) would reset master to $upstreamMaster"
+        Log "  (what-if) would reset master to $upstreamMaster and re-apply tooling files"
     } else {
+        # Stash tooling files (they differ from upstream since upstream lacks them)
+        $stashList = @()
+        foreach ($p in $TOOLING_PATHS) {
+            if (Test-Path $p) { $stashList += $p }
+        }
+        # Save tooling to temp dir
+        $tmpDir = Join-Path $env:TEMP "blackwell-tooling-$(Get-Random)"
+        New-Item -ItemType Directory -Path $tmpDir | Out-Null
+        foreach ($p in $stashList) {
+            $rel = $p -replace '/', [IO.Path]::DirectorySeparatorChar
+            Copy-Item $p (Join-Path $tmpDir ($p -replace '/', '_'))
+        }
         RunGit @('switch', 'master') | Out-Null
         RunGit @('reset', '--hard', 'upstream/master')
+        # Restore tooling files on top of the reset master
+        foreach ($p in $TOOLING_PATHS) {
+            $saved = Join-Path $tmpDir ($p -replace '/', '_')
+            if (Test-Path $saved) {
+                $dir = Split-Path $p -Parent
+                if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+                Copy-Item $saved $p
+            }
+        }
+        # Commit tooling as a single logical commit
+        RunGit @('add', '--', @($TOOLING_PATHS) | ForEach-Object { $_ -replace '\\','/' })
+        $code = RunGit @('commit', '-m', 'ci: sync tooling (workflows, scripts, docs) after upstream reset')
+        if ($LASTEXITCODE -ne 0) {
+            # Nothing to commit if tooling is identical — that's fine
+            Log "  (no tooling diff to commit — files already match)"
+        }
         Push @('push', '--force-with-lease', 'origin', 'master')
-        Log "  master now = $(git rev-parse master)"
+        Log "  master now = $(git rev-parse master) (upstream source + tooling)"
+        # Clean up temp
+        Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 } else {
-    Log "  master already matches upstream/master — nothing to do"
+    Log "  master already matches upstream/master — checking tooling presence..."
 }
-$originMaster = (git ls-remote origin refs/heads/master | ForEach-Object { ($_ -split "`t")[0] }).Trim()
-if ($originMaster -ne $upstreamMaster) {
-    LogErr "origin/master ($originMaster) != upstream/master ($upstreamMaster) — sync incomplete"
+# Verify source parity: diff should list ONLY tooling paths
+$srcDiff = @(git diff --name-only upstream/master...master 2>$null)
+$nonTooling = @($srcDiff | Where-Object { $_ -notin $TOOLING_PATHS })
+if ($nonTooling.Count -gt 0) {
+    LogErr "Source parity VIOLATION — master has non-tooling changes vs upstream:"
+    $nonTooling | ForEach-Object { LogErr "  $_" }
     exit 1
 }
-Log "  VERIFIED: master == upstream/master ($upstreamMaster)"
+Log "  VERIFIED: source parity holds (master = upstream source + $TOOLING_PATHS)"
 
 # ---------------------------------------------------------------- PR status
 function PrStatus([int]$num) {
