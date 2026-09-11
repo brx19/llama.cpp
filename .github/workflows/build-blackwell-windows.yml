@@ -133,10 +133,21 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
-          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          & cmd /c `"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
+          # CUDA compiler-id detection (nvcc needs cl.exe as the host compiler).
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          $envDump = & cmd /c "`"$vcvars`" x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
+          }
+          Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
+          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
+          $clExe = (Get-Command cl).Source
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -190,7 +201,10 @@ jobs:
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "package-$env:VARIANT"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          $binDir = "build\bin\Release"
+          # Ninja Multi-Config + -DCMAKE_BUILD_TYPE=Release places outputs in build\bin\
+          # (not build\bin\Release\). Search both to be safe.
+          $binDir = "build\bin"
+          if (-not (Test-Path (Join-Path $binDir "llama-server.exe"))) { $binDir = "build\bin\Release" }
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             Copy-Item "$binDir\$exe" $stage -ErrorAction Stop
           }
@@ -381,10 +395,19 @@ jobs:
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
+          # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
+          # CUDA compiler-id detection (nvcc needs cl.exe as the host compiler).
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-          $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
-          Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          & cmd /c "`"$vcvars`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          $envDump = & cmd /c "`"$vcvars`" x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
+          }
+          Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
+          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
+          $clExe = (Get-Command cl).Source
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -407,7 +430,13 @@ jobs:
         run: |
           $jobs = [Math]::Max(1, [Environment]::ProcessorCount - 1)
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-          & cmd /c "`"$vcvars`" x64 >nul && cmake --build build --config Release -j $jobs 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
+          $envDump = & cmd /c "`"$vcvars`" x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
+          }
+          & cmake --build build --config Release -j $jobs 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
           $proof = Select-String -Path $env:RUNNER_TEMP/build.log -Pattern 'sm_120a|120a' | Select-Object -First 5
           if ($proof) { $proof | ForEach-Object { Write-Host "ARCH-PROOF: $($_.Line)" } } else {
@@ -438,7 +467,10 @@ jobs:
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "package-$env:VARIANT"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          $binDir = "build\bin\Release"
+          # Ninja Multi-Config + -DCMAKE_BUILD_TYPE=Release places outputs in build\bin\
+          # (not build\bin\Release\). Search both to be safe.
+          $binDir = "build\bin"
+          if (-not (Test-Path (Join-Path $binDir "llama-server.exe"))) { $binDir = "build\bin\Release" }
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             Copy-Item "$binDir\$exe" $stage -ErrorAction Stop
           }
@@ -624,10 +656,19 @@ jobs:
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real','-DGGML_CUDA_CUTLASS=ON')
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
+          # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
+          # CUDA compiler-id detection (nvcc needs cl.exe as the host compiler).
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-          $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
-          Write-Host "CMake args: $($cmakeArgs -join ' ')"
-          & cmd /c "`"$vcvars`" x64 >nul && cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1" | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          $envDump = & cmd /c "`"$vcvars`" x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
+          }
+          Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
+          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
+          $clExe = (Get-Command cl).Source
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -681,7 +722,10 @@ jobs:
         run: |
           $stage = Join-Path $env:RUNNER_TEMP "package-$env:VARIANT"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          $binDir = "build\bin\Release"
+          # Ninja Multi-Config + -DCMAKE_BUILD_TYPE=Release places outputs in build\bin\
+          # (not build\bin\Release\). Search both to be safe.
+          $binDir = "build\bin"
+          if (-not (Test-Path (Join-Path $binDir "llama-server.exe"))) { $binDir = "build\bin\Release" }
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             Copy-Item "$binDir\$exe" $stage -ErrorAction Stop
           }
