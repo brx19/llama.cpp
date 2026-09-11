@@ -51,9 +51,11 @@ Date: 2026-09-11 | Operator: Hermes (brx19 / BrX) | Upstream: ggml-org/llama.cpp
 | **combined** | N/A | — (not built; disjoint paths) | — |
 
 ## 8. RELEASE
-- Tag: `blackwell-windows-cuda13.3-sm120a`
+- Tag: `blackwell-build-<date>-<upstreamShort>` (e.g. `blackwell-build-20260911-<sha>`)
+- Assets: all variant ZIPs from the dispatch + SHA256SUMS.txt
 - Status: **in progress** — release-publishing run **34600950163** dispatched (`variant=all, publish_release=true`); rebuilding all three variants then creating the Release with the three ZIPs + SHA256SUMS attached. (Poller proc_3d56b79bc558.)
 - The `publish-release` job attaches the build artifacts as release assets.
+- **publish-release job fix**: the first release-build's `publish-release` job failed because the job had **no `actions/checkout`** (so `gh` had no repo context and `git ls-remote` ran outside a repo). Fixed in `068b75caa`: added `actions/checkout@v4` + `GH_REPO: brx19/llama.cpp` so `gh release create` knows the target repo, wrapped `git ls-remote` in try/catch (falls back to `unknown` short), and made `gh release create` failures **fatal** (`throw` on non-zero exit) so the step can no longer falsely report success. Re-dispatched as run tracking proc_35c45f306023.
 
 ## 9. VALIDATION (per-variant, from CI logs of run 34598315657)
 - ZIP structure: `llama-server.exe`, `llama-bench.exe`, `ggml-cuda.dll`, `ggml.dll`, `BUILD-METADATA.json`, `SHA256SUMS.txt` — all present; "ZIP validation OK" for all three.
@@ -98,7 +100,7 @@ Date: 2026-09-11 | Operator: Hermes (brx19 / BrX) | Upstream: ggml-org/llama.cpp
 | 7 | `Variable reference is not valid: ':'` | `$exe:` in double-quoted string = drive-ref | `${exe}:` |
 
 ## 14. NEXT STEPS (optional / user-driven)
-1. Wait for release run 34600950163 to finish → confirm Release `blackwell-windows-cuda13.3-sm120a` has the 3 ZIPs + SHA256SUMS.
+1. Release build re-dispatched after the `publish-release` fix (run tracking proc_35c45f306023) → confirm the GitHub Release `blackwell-build-20260911-*` has the 3 ZIPs + SHA256SUMS attached.
 2. Run `scripts/Sync-Upstream.ps1` to sync master to `upstream/master` (`5bda51bf`) + rebase branches (upstream drifted).
 3. Optionally delete the inherited `model-naming` workflow to declutter the fork's run list.
 4. On the RTX 5090 host: extract a ZIP, confirm `llama-server.exe` loads the RTX 5090 (CC 12.0), then A/B `stock` vs `tma` vs `cutlass` on the Qwen3.8-27B NVFP4 MTP workload (~196K context) for real perf numbers.
