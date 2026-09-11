@@ -82,7 +82,7 @@ jobs:
             'stock'   { $b = 'master' }
             'tma'     { $b = 'blackwell/tma' }
             'cutlass' { $b = 'blackwell/cutlass' }
-            default   { throw "unknown variant $env:VARIANT" }
+            default   { throw "unknown variant " + $env:VARIANT }
           }
           "branch=$b" >> $env:GITHUB_OUTPUT
           Write-Host "variant=$env:VARIANT branch=$b"
