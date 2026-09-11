@@ -71,19 +71,21 @@ jobs:
       matrix:
         variant: ${{ fromJson(needs.expand.outputs.variants) }}
     name: build (${{ matrix.variant }}, cuda13.3, sm120a)
+    env:
+      VARIANT: ${{ matrix.variant }}
     steps:
       - name: Map variant to source branch
         id: map
         shell: pwsh
         run: |
-          switch ('${{ matrix.variant }}') {
+          switch ('$env:VARIANT') {
             'stock'   { $b = 'master' }
             'tma'     { $b = 'blackwell/tma' }
             'cutlass' { $b = 'blackwell/cutlass' }
-            default   { throw "unknown variant ${{ matrix.variant }}" }
+            default   { throw "unknown variant $env:VARIANT" }
           }
           "branch=$b" >> $env:GITHUB_OUTPUT
-          Write-Host "variant=${{ matrix.variant }} branch=$b"
+          Write-Host "variant=$env:VARIANT branch=$b"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -136,7 +138,7 @@ jobs:
         id: configure
         shell: pwsh
         run: |
-          $cutlassFlag = if ('${{ matrix.variant }}' -eq 'cutlass') { '-DGGML_CUDA_CUTLASS=ON' } else { $null }
+          $cutlassFlag = if ($env:VARIANT -eq 'cutlass') { '-DGGML_CUDA_CUTLASS=ON' } else { $null }
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF','-DCMAKE_CUDA_ARCHITECTURES=120a-real')
           if ($cutlassFlag) { $cmakeArgs += $cutlassFlag }
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
@@ -194,7 +196,7 @@ jobs:
         id: pkg
         shell: pwsh
         run: |
-          $stage = Join-Path $env:RUNNER_TEMP "package-${{ matrix.variant }}"
+          $stage = Join-Path $env:RUNNER_TEMP "package-$env:VARIANT"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           $binDir = "build\bin\Release"
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
@@ -220,7 +222,7 @@ jobs:
         shell: pwsh
         run: |
           $stage      = '${{ steps.pkg.outputs.stage }}'
-          $variant    = '${{ matrix.variant }}'
+          $variant    = $env:VARIANT
           $cudaVersion = '${{ steps.toolchain.outputs.cuda_version }}'
           $shortSha   = '${{ steps.src.outputs.short_sha }}'
           $date       = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
