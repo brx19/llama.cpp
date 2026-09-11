@@ -319,7 +319,7 @@ jobs:
           Write-Host "NOTE: CUDA initialization not attempted (no GPU on runner)."
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.zip_name }}
           path: ${{ steps.meta.outputs.zip_path }}
@@ -332,7 +332,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Download all variant artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: llama-win-cuda*-sm120a-*.zip
