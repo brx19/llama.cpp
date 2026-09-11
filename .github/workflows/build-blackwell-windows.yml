@@ -72,7 +72,7 @@ jobs:
         variant: ${{ fromJson(needs.expand.outputs.variants) }}
     name: build (${{ matrix.variant }}, cuda13.3, sm120a)
     env:
-      VARIANT: ${{ matrix.variant }}
+      VARIANT: "${{ matrix.variant }}"
     steps:
       - name: Map variant to source branch
         id: map
