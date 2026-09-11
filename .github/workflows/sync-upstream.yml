@@ -1,0 +1,124 @@
+# Optional scheduled upstream sync for the Blackwell fork.
+#
+# Safe-automation policy:
+#   1. Detect upstream movement.
+#   2. Update the clean master mirror (reset + force-with-lease push).
+#   3. Attempt to refresh experimental branches (rebase their PR deltas).
+#   4. On conflict: DO NOT hide it — abort the rebase, keep the branch as-is,
+#      and report the conflict in the run summary + a GitHub Issue.
+#
+# Manual workflow_dispatch remains available at all times.
+
+name: CI (Blackwell, sync)
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
+          git fetch upstream --prune --tags
+          git fetch origin --prune --tags
+
+      - name: Check upstream movement
+        id: check
+        run: |
+          up=$(git rev-parse upstream/master)
+          local=$(git rev-parse master)
+          origin=$(git ls-remote origin refs/heads/master | cut -f1)
+          echo "upstream=$up"
+          echo "local=$local"
+          echo "origin=$origin"
+          if [ "$up" != "$local" ]; then
+            echo "moved=true" >> $GITHUB_OUTPUT
+            echo "::notice::upstream/master advanced: $local -> $up"
+          else
+            echo "moved=false" >> $GITHUB_OUTPUT
+            echo "master already up to date with upstream"
+          fi
+
+      - name: Sync master
+        if: steps.check.outputs.moved == 'true'
+        run: |
+          # Preserve any unique commits on master first (safety)
+          if [ -n "$(git log --oneline upstream/master..master)" ]; then
+            ts=$(date +%Y%m%d-%H%M)
+            git branch "backup/master-before-sync-$ts" master
+            echo "::notice::preserved unique master commits as backup/master-before-sync-$ts"
+          fi
+          git switch master
+          git reset --hard upstream/master
+          git push --force-with-lease origin master
+          echo "master synced to $(git rev-parse master)"
+
+      - name: Refresh experimental branches
+        if: steps.check.outputs.moved == 'true'
+        id: branches
+        run: |
+          conflicts=0
+          for spec in "blackwell/tma 28572" "blackwell/cutlass 26704"; do
+            set -- $spec
+            branch=$1; pr=$2
+            if ! git show-ref --verify "refs/heads/$branch" >/dev/null 2>&1; then
+              echo "::notice::branch $branch not found locally, skipping"
+              continue
+            fi
+            # Skip if PR merged upstream (work is now in master)
+            state=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/ggml-org/llama.cpp/pulls/$pr" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('state','?')+':'+str(d.get('merged',False)))" 2>/dev/null || echo "?")
+            if echo "$state" | grep -q ":True"; then
+              echo "::notice::PR #$pr merged upstream — $branch is now unnecessary (stock master includes the work)"
+              continue
+            fi
+            git fetch upstream "refs/pull/$pr/head:refs/remotes/upstream/pr-$pr" --force
+            git switch "$branch"
+            n=$(git rev-list --count "master..$branch")
+            echo "refreshing $branch: re-applying $n PR commit(s) onto current master (PR #$pr)"
+            if git rebase -X theirs --onto master "HEAD~$n..HEAD" "$branch" >/tmp/rebase.log 2>&1; then
+              git push --force-with-lease origin "$branch"
+              echo "$branch refreshed -> $(git rev-parse $branch)"
+            else
+              conflicts=$((conflicts+1))
+              tail -40 /tmp/rebase.log
+              git rebase --abort
+              echo "::error::REBASE CONFLICT on $branch (PR #$pr) — branch left as-is, rebase aborted."
+              echo "::error::Manual: git switch $branch && git rebase -X theirs --onto master HEAD~$n..HEAD && resolve && git push --force-with-lease origin $branch"
+            fi
+          done
+          echo "conflicts=$conflicts" >> $GITHUB_OUTPUT
+
+      - name: Report conflicts
+        if: steps.branches.outputs.conflicts != '0' && steps.branches.outputs.conflicts != ''
+        run: |
+          date=$(date +%Y%m%d)
+          gh issue create --title "Blackwell sync: rebase conflicts on $date" \
+            --body "Scheduled upstream sync advanced master but could not auto-resume experimental branch rebases. See run $GITHUB_RUN_ID for conflict details. Affected branches require manual rebases." \
+            --label "ci,blackwell" 2>/dev/null || echo "issue creation failed (label may not exist)"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== sync summary ==="
+          echo "master=$(git rev-parse master)"
+          echo "upstream/master=$(git rev-parse upstream/master)"
+          echo "in-sync: $([ "$(git rev-parse master)" = "$(git rev-parse upstream/master)" ] && echo YES || echo NO)"
+          for b in blackwell/tma blackwell/cutlass; do
+            if git show-ref --verify "refs/heads/$b" >/dev/null 2>&1; then
+              echo "$b=$(git rev-parse $b) delta=$(git rev-list --count master..$b)"
+            fi
+          done
