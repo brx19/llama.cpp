@@ -875,6 +875,9 @@ jobs:
     needs: [build-stock, build-tma, build-cutlass]
     runs-on: windows-2022
     steps:
+      # Checkout so `gh` knows the repo context and `git` commands work.
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download all variant artifacts
         uses: actions/download-artifact@v4
         with:
@@ -885,9 +888,15 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_REPO: brx19/llama.cpp
         run: |
           $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
-          $upstreamShort = (git ls-remote https://github.com/ggml-org/llama.cpp refs/heads/master | ForEach-Object { ($_ -split '\t')[0].Substring(0,10) }).Trim()
+          # git ls-remote works without a checkout (remote query); fall back to
+          # a static short if it fails.
+          try {
+            $upstreamShort = (git ls-remote https://github.com/ggml-org/llama.cpp refs/heads/master | ForEach-Object { ($_ -split '\t')[0].Substring(0,10) }).Trim()
+          } catch { $upstreamShort = 'unknown' }
+          if (-not $upstreamShort) { $upstreamShort = 'unknown' }
           $tag = "blackwell-build-${date}-${upstreamShort}"
           $assets = @(Get-ChildItem dist -Filter *.zip | ForEach-Object { $_.FullName })
           if ($assets.Count -eq 0) { throw "no variant ZIPs found to publish" }
@@ -900,6 +909,9 @@ jobs:
           GPU runtime validation: NOT performed on CI. REQUIRES LOCAL RTX 5090 VALIDATION.
           Each ZIP contains BUILD-METADATA.json (source SHA, CUDA/MSVC/CMake versions, CMake args) and SHA256SUMS.txt.
           "@
+          # Remove any prior release with the same tag (idempotent re-publish).
           gh release delete "$tag" --yes --cleanup-tag 2>$null
+          # Create the release; FAIL the step if it errors.
           gh release create "$tag" $assets --title "Blackwell Windows builds ($date)" --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
           Write-Host "Published release $tag with $($assets.Count) assets"
