@@ -320,7 +320,7 @@ jobs:
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             $p = Join-Path $checkDir $exe
             $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($p)
-            Write-Host "$exe: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
+            Write-Host "${exe}: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
           }
           Write-Host "NOTE: CUDA initialization not attempted (no GPU on runner)."
 
@@ -594,7 +594,7 @@ jobs:
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             $p = Join-Path $checkDir $exe
             $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($p)
-            Write-Host "$exe: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
+            Write-Host "${exe}: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
           }
           Write-Host "NOTE: CUDA initialization not attempted (no GPU on runner)."
 
@@ -858,7 +858,7 @@ jobs:
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
             $p = Join-Path $checkDir $exe
             $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($p)
-            Write-Host "$exe: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
+            Write-Host "${exe}: ProductName=$($v.ProductName) ProductVersion=$($v.ProductVersion) FileVersion=$($v.FileVersion)"
           }
           Write-Host "NOTE: CUDA initialization not attempted (no GPU on runner)."
 
