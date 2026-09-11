@@ -50,12 +50,15 @@ Date: 2026-09-11 | Operator: Hermes (brx19 / BrX) | Upstream: ggml-org/llama.cpp
 | **cutlass** | **SUCCESS** | `llama-win-cuda13.3-sm120a-cutlass-63a6c0d35a.zip` (~44.7 MB) | `63a6c0d35a` (blackwell/cutlass) |
 | **combined** | N/A | — (not built; disjoint paths) | — |
 
-## 8. RELEASE
-- Tag: `blackwell-build-<date>-<upstreamShort>` (e.g. `blackwell-build-20260911-<sha>`)
-- Assets: all variant ZIPs from the dispatch + SHA256SUMS.txt
-- Status: **in progress** — release-publishing run **34600950163** dispatched (`variant=all, publish_release=true`); rebuilding all three variants then creating the Release with the three ZIPs + SHA256SUMS attached. (Poller proc_3d56b79bc558.)
-- The `publish-release` job attaches the build artifacts as release assets.
-- **publish-release job fix**: the first release-build's `publish-release` job failed because the job had **no `actions/checkout`** (so `gh` had no repo context and `git ls-remote` ran outside a repo). Fixed in `068b75caa`: added `actions/checkout@v4` + `GH_REPO: brx19/llama.cpp` so `gh release create` knows the target repo, wrapped `git ls-remote` in try/catch (falls back to `unknown` short), and made `gh release create` failures **fatal** (`throw` on non-zero exit) so the step can no longer falsely report success. Re-dispatched as run tracking proc_35c45f306023.
+## 8. RELEASE — **PUBLISHED** ✅
+- **Release:** `blackwell-build-20260911-43f3dda623` — "Blackwell Windows builds (20260911)"
+- **Publishing run:** 34603606613 (SHA `068b75caa`) — **all 4 jobs success** (stock, tma, cutlass build + publish-release)
+- **Assets (3, ~42 MB each):**
+  - `llama-win-cuda13.3-sm120a-stock-068b75caa3.zip`
+  - `llama-win-cuda13.3-sm120a-tma-00cef0cb0b.zip`
+  - `llama-win-cuda13.3-sm120a-cutlass-63a6c0d35a.zip`
+- Each ZIP: `llama-server.exe`, `llama-bench.exe`, `ggml-cuda.dll`, `ggml.dll`, `BUILD-METADATA.json`, `SHA256SUMS.txt`
+- **publish-release job fix** (commit `068b75caa`): added `actions/checkout@v4` + `GH_REPO: brx19/llama.cpp` so `gh release create` knows the target repo; wrapped `git ls-remote` in try/catch; made `gh release create` failures fatal (`throw` on non-zero exit). The first release-build (34600950163) failed at publish-release due to missing repo context; re-dispatched on `068b75caa` → success.
 
 ## 9. VALIDATION (per-variant, from CI logs of run 34598315657)
 - ZIP structure: `llama-server.exe`, `llama-bench.exe`, `ggml-cuda.dll`, `ggml.dll`, `BUILD-METADATA.json`, `SHA256SUMS.txt` — all present; "ZIP validation OK" for all three.
@@ -98,9 +101,10 @@ Date: 2026-09-11 | Operator: Hermes (brx19 / BrX) | Upstream: ggml-org/llama.cpp
 | 5 | cutlass `glu_limit` no-member | `-X theirs` rebase mixed master's .cu with PR's .cuh | remove `glu_limit` from mmvf.cu/mmvq.cu |
 | 6 | `Using CMAKE_CUDA_ARCHITECTURES=native` | `enable_language(CUDA)` shadows `-D` arch with `native` | drop `-DCMAKE_CUDA_ARCHITECTURES`; let llama.cpp auto-add `120a-real` |
 | 7 | `Variable reference is not valid: ':'` | `$exe:` in double-quoted string = drive-ref | `${exe}:` |
+| 8 | publish-release `gh release create` fails (exit 1), "fatal: not a git repository" | publish-release job had **no `actions/checkout`** → `gh` has no repo context, `git` fails outside a repo | add `actions/checkout@v4` + `GH_REPO: brx19/llama.cpp`; wrap `git ls-remote` in try/catch; make `gh release create` failures fatal |
 
 ## 14. NEXT STEPS (optional / user-driven)
-1. Release build re-dispatched after the `publish-release` fix (run tracking proc_35c45f306023) → confirm the GitHub Release `blackwell-build-20260911-*` has the 3 ZIPs + SHA256SUMS attached.
-2. Run `scripts/Sync-Upstream.ps1` to sync master to `upstream/master` (`5bda51bf`) + rebase branches (upstream drifted).
+1. **Release is published** (`blackwell-build-20260911-43f3dda623`) — no further action needed there.
+2. Run `scripts/Sync-Upstream.ps1` to sync master to `upstream/master` (`5bda51bf`) + rebase branches (upstream drifted after the fork was built).
 3. Optionally delete the inherited `model-naming` workflow to declutter the fork's run list.
 4. On the RTX 5090 host: extract a ZIP, confirm `llama-server.exe` loads the RTX 5090 (CC 12.0), then A/B `stock` vs `tma` vs `cutlass` on the Qwen3.8-27B NVFP4 MTP workload (~196K context) for real perf numbers.
