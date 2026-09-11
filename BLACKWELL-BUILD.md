@@ -45,11 +45,22 @@ Local development clone:
 ### Invariant
 
 ```
-master == upstream/master   (exact, same SHA)
+master = upstream/master source + CI/tooling additions
 ```
 
-Never commit custom changes directly to `master`. All experimental work lives
-in `blackwell/*` branches.
+* All **source files** on `master` are byte-identical to `upstream/master`
+  (verified by `git diff upstream/master...master -- ggml/ examples/ tests/
+  CMakeLists.txt` being empty).
+* `master` additionally carries **only** build tooling:
+  `.github/workflows/build-blackwell-windows.yml`,
+  `.github/workflows/sync-upstream.yml`, `scripts/Sync-Upstream.ps1`, and
+  `BLACKWELL-BUILD.md`. These live on the default branch so that GitHub
+  Actions picks them up automatically.
+* Because of those additions, `git rev-parse master` does NOT equal
+  `git rev-parse upstream/master`. The invariant is therefore checked as
+  **source parity**, not SHA equality.
+* Never commit llama.cpp *source* changes to `master`. All experimental
+  work lives in `blackwell/*` branches.
 
 ---
 
@@ -69,10 +80,11 @@ git branch backup/master-before-sync-YYYYMMDD-HHMM master
 git switch master
 git reset --hard upstream/master
 git push --force-with-lease origin master
-
-# Verify (must match exactly):
-git rev-parse master
-git rev-parse upstream/master
+# Re-apply tooling-only additions on top (workflows, scripts, docs):
+git cherry-pick <tooling-commits>   # or re-add the 4 tooling files
+# Verify source parity:
+git diff --name-only upstream/master...master
+# (must list only .github/, scripts/, BLACKWELL-BUILD.md)
 ```
 
 **Plain `--force` is never used** — only `--force-with-lease`.
