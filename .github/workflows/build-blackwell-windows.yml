@@ -145,9 +145,10 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
-          $clExe = (Get-Command cl).Source
-          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          # CMake's default CUDA host-compiler search now finds cl.exe on PATH
+          # (exported above). Do NOT pass -DCMAKE_CUDA_HOST_COMPILER with an
+          # unquoted path: expansion mangles spaces/backslashes in the path.
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -405,9 +406,10 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
-          $clExe = (Get-Command cl).Source
-          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          # CMake's default CUDA host-compiler search now finds cl.exe on PATH
+          # (exported above). Do NOT pass -DCMAKE_CUDA_HOST_COMPILER with an
+          # unquoted path: expansion mangles spaces/backslashes in the path.
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
@@ -666,9 +668,10 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          # Point CMake at the host compiler explicitly so nvcc detection succeeds.
-          $clExe = (Get-Command cl).Source
-          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CUDA_HOST_COMPILER=$clExe" $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          # CMake's default CUDA host-compiler search now finds cl.exe on PATH
+          # (exported above). Do NOT pass -DCMAKE_CUDA_HOST_COMPILER with an
+          # unquoted path: expansion mangles spaces/backslashes in the path.
+          & cmake -S . -B build -G `Ninja Multi-Config` -DCMAKE_BUILD_TYPE=Release $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Verify SM120a architecture target
