@@ -79,9 +79,9 @@ jobs:
         shell: pwsh
         run: |
           # Hard guard: the matrix value must have reached the job env.
-          # A literal value means ${{} } expressions were not substituted
-          # (e.g. the actions toolchain on this image cannot load) — fail fast.
-          if ($env:VARIANT -match '^\$\{\{' -or $env:VARIANT -eq "$_" -or $env:VARIANT -match 'matrix\.variant') {
+          # A literal value means expressions were not substituted (e.g. the
+          # actions toolchain on this image cannot load) - fail fast.
+          if ($env:VARIANT -match "^\$\\{\\{" -or $env:VARIANT -eq "$_" -or $env:VARIANT -match "matrix\.variant") {
             throw "VARIANT env is not the matrix value: '$($env:VARIANT)'. Expression substitution failed on this runner image."
           }
           switch ('$env:VARIANT') {
