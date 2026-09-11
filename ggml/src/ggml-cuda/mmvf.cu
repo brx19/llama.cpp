@@ -56,7 +56,6 @@ static __global__ void mul_mat_vec_f(
     bool use_bias = false;
     bool use_gate_bias = false;
     ggml_glu_op glu_op = ggml_glu_op::GGML_GLU_OP_SWIGLU;
-    float glu_limit = 0.0f;
     const T * gate_x = nullptr;
     const float * x_bias = nullptr;
     const float * gate_bias = nullptr;
@@ -66,7 +65,6 @@ static __global__ void mul_mat_vec_f(
         use_bias = fusion.x_bias != nullptr;
         use_gate_bias = fusion.gate_bias != nullptr;
         glu_op = fusion.glu_op;
-        glu_limit = fusion.glu_limit;
 
         if (use_gate) {
             gate_x = static_cast<const T *>(fusion.gate);
@@ -367,9 +365,6 @@ static __global__ void mul_mat_vec_f(
                     value = ggml_cuda_op_swiglu_oai_single(gate_value, value);
                     break;
                 }
-                case GGML_GLU_OP_SWIGLU_CLAMP:
-                    value = ggml_cuda_op_swiglu_clamp_single(gate_value, value, glu_limit);
-                    break;
                 default:
                     break;
             }
@@ -379,7 +374,7 @@ static __global__ void mul_mat_vec_f(
     dst[tid*stride_col_dst + row] = value;
 
     if constexpr (!has_fusion) {
-        GGML_UNUSED_VARS(use_gate, use_bias, use_gate_bias, glu_op, glu_limit, gate_x, x_bias, gate_bias, sumf_gate);
+        GGML_UNUSED_VARS(use_gate, use_bias, use_gate_bias, glu_op, gate_x, x_bias, gate_bias, sumf_gate);
     }
 }
 
