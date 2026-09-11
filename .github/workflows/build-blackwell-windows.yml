@@ -59,7 +59,7 @@ jobs:
         run: |
           $v = '${{ inputs.variant }}'
           if ($v -eq 'all') { $list = @('stock','tma','cutlass') } else { $list = @($v) }
-          $json = ('[' + ($list | ForEach-Object { "`"$_`"" }) + ']')
+          $json = ('[' + (($list | ForEach-Object { '"$_"' }) -join ',') + ']')
           "variants=$json" >> $env:GITHUB_OUTPUT
           Write-Host "Building variants: $json"
 
