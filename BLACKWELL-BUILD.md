@@ -376,6 +376,50 @@ treat CI compilation success as runtime performance evidence.
 
 ---
 
+## 9b. Troubleshooting (root causes found during bring-up)
+
+Three CI/compile issues were diagnosed and fixed while bringing the workflow
+to a green state. Recorded here so they are not re-encountered.
+
+**1. `nvcc fatal: Cannot find compiler 'cl.exe' in PATH` (configure failure)**
+
+The original configure step used `cmd /c vcvarsall.bat x64 && cmake ...`. The
+one-shot `cmd /c` does not reliably export the MSVC environment to CMake's
+CUDA compiler-id detection sub-processes, so `nvcc` could not locate `cl.exe`
+as the CUDA host compiler. Fix: the configure step now sources `vcvarsall.bat`
+into the PowerShell session (captures `set` output and applies it via
+`[Environment]::SetEnvironmentVariable`) and passes
+`-DCMAKE_CUDA_HOST_COMPILER=<cl.exe path>` explicitly.
+
+**2. `Cannot find path 'build\bin\Release\llama-server.exe'` (collect failure)**
+
+TMA compiled and linked successfully but the collect step looked for binaries
+in `build\bin\Release\`. With the `Ninja Multi-Config` generator plus
+`-DCMAKE_BUILD_TYPE=Release`, outputs land in `build\bin\` (not a
+`Release\` subdirectory). Fix: the collect step checks `build\bin` first and
+falls back to `build\bin\Release`.
+
+**3. `class "ggml_cuda_mm_fusion_args_device" has no member "glu_limit"`
+(cutlass compile failure)**
+
+A rebase artifact. `git rebase -X theirs` onto master pulled master's
+`mmvf.cu`/`mmvq.cu` (which read `fusion.glu_limit` and handled
+`GGML_GLU_OP_SWIGLU_CLAMP`) over the CUTLASS PR's versions. The cutlass
+branch's `ggml_cuda_mm_fusion_args_device` struct (in `common.cuh`) has no
+`glu_limit` member, and `ggml-cuda.cu` does not populate it. Fix: removed the
+`glu_limit` variable, the `fusion.glu_limit` reads, the `SWIGLU_CLAMP` case,
+and the unused-vars entries from `mmvf.cu`/`mmvq.cu` on the cutlass branch.
+The CUTLASS MoE prefill path uses `SWIGLU_OAI` (not `SWIGLU_CLAMP`), so this
+is a no-op for the intended workload. Master's other `mmvq.cu` improvements
+(e.g. DGX Spark prefetch) are preserved.
+
+**General note:** the workflow deliberately avoids a dynamic matrix
+(`expand` job → `fromJson` → matrix → env). A literal `$_` matrix value broke
+earlier runs. Variant→branch mapping uses three fixed jobs, each with a static
+`VARIANT` env and an `if:` gate on the `variant` dispatch input.
+
+---
+
 ## 10. Repository hygiene
 
 Committed: workflows, `scripts/`, this doc, and the experimental-branch
