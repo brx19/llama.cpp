@@ -189,6 +189,7 @@ jobs:
           # the MSVC environment. The Release config is selected explicitly at
           # build time with `cmake --build build --config Release`.
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          $cmakeArgs += "-DCMAKE_CUDA_COMPILER=$env:CUDA_PATH\bin\nvcc.exe"
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
@@ -574,6 +575,7 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          $cmakeArgs += "-DCMAKE_CUDA_COMPILER=$env:CUDA_PATH\bin\nvcc.exe"
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
@@ -925,6 +927,7 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          $cmakeArgs += "-DCMAKE_CUDA_COMPILER=$env:CUDA_PATH\bin\nvcc.exe"
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
