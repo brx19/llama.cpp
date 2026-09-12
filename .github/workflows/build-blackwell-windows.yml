@@ -189,6 +189,12 @@ jobs:
           # generator. The Release config is selected explicitly at build
           # time with `cmake --build build --config Release`.
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
+          # fall back to a bare cl on the runner's default PATH (which lacks the
+          # vcvars include/lib environment and fails with C1083 stdbool.h).
+          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
@@ -574,6 +580,12 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
+          # fall back to a bare cl on the runner's default PATH (which lacks the
+          # vcvars include/lib environment and fails with C1083 stdbool.h).
+          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
@@ -925,6 +937,12 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
+          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
+          # fall back to a bare cl on the runner's default PATH (which lacks the
+          # vcvars include/lib environment and fails with C1083 stdbool.h).
+          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
+          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
