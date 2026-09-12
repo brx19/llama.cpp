@@ -155,9 +155,11 @@ jobs:
           if (-not (Test-Path $vcvars)) {
             $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
           }
-          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl 2>&1") -join "`n"
+          # cl with no args prints usage to stderr; cl /? prints full help
+          # (including the version banner) to stdout reliably.
+          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl /? 2>&1") -join "`n"
           $m = [regex]::Match($clOut, 'Version\s+(\d+\.\d+\.\d+\.\d+)')
-          if (-not $m.Success) { throw "MSVC version detection FAILED: cl output was:`n$clOut" }
+          if (-not $m.Success) { throw "MSVC version detection FAILED: cl /? output was:`n$clOut" }
           "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
@@ -548,9 +550,11 @@ jobs:
           if (-not (Test-Path $vcvars)) {
             $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
           }
-          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl 2>&1") -join "`n"
+          # cl with no args prints usage to stderr; cl /? prints full help
+          # (including the version banner) to stdout reliably.
+          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl /? 2>&1") -join "`n"
           $m = [regex]::Match($clOut, 'Version\s+(\d+\.\d+\.\d+\.\d+)')
-          if (-not $m.Success) { throw "MSVC version detection FAILED: cl output was:`n$clOut" }
+          if (-not $m.Success) { throw "MSVC version detection FAILED: cl /? output was:`n$clOut" }
           "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
@@ -897,9 +901,11 @@ jobs:
           if (-not (Test-Path $vcvars)) {
             $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
           }
-          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl 2>&1") -join "`n"
+          # cl with no args prints usage to stderr; cl /? prints full help
+          # (including the version banner) to stdout reliably.
+          $clOut = (& cmd /c "`"$vcvars`" x64 >nul 2>&1 && cl /? 2>&1") -join "`n"
           $m = [regex]::Match($clOut, 'Version\s+(\d+\.\d+\.\d+\.\d+)')
-          if (-not $m.Success) { throw "MSVC version detection FAILED: cl output was:`n$clOut" }
+          if (-not $m.Success) { throw "MSVC version detection FAILED: cl /? output was:`n$clOut" }
           "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
           $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
           $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
