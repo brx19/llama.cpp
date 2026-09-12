@@ -28,11 +28,11 @@
 # ---------------------------------------------------------------------------
 # Packaging / validation notes (added 2026-09-12)
 # ---------------------------------------------------------------------------
-# The Ninja Multi-Config generator IGNORES -DCMAKE_BUILD_TYPE; the build
-# config is selected with `cmake --build build --config Release`. The
-# earlier workflow passed -DCMAKE_BUILD_TYPE=Release only, which silently
-# produced a DEBUG build (VCRUNTIME140D / MSVCP140D / ucrtbased imports)
-# and a package missing llama-server-impl.dll. Every build step therefore:
+# The Visual Studio 17 2022 generator automatically sets up the MSVC
+# environment (vcvars) and places Release outputs in build\bin\Release.
+# The earlier workflow used Ninja Multi-Config with -DCMAKE_BUILD_TYPE=Release,
+# which silently produced a DEBUG build (VCRUNTIME140D / MSVCP140D / ucrtbased
+# imports) and a package missing llama-server-impl.dll. Every build step therefore:
 #   1. builds explicitly with `--config Release`
 #   2. collects the runtime package from a single, verified Release output
 #      directory (no recursive tree-wide file gathering, so Debug/Release
@@ -185,16 +185,10 @@ jobs:
           # variable is left undefined and GGML_NATIVE=OFF. The verify step
           # below checks that 120a-real appears in the resolved arch list.
           #
-          # NOTE: -DCMAKE_BUILD_TYPE is IGNORED by the Ninja Multi-Config
-          # generator. The Release config is selected explicitly at build
-          # time with `cmake --build build --config Release`.
+          # NOTE: the Visual Studio 17 2022 generator automatically sets up
+          # the MSVC environment. The Release config is selected explicitly at
+          # build time with `cmake --build build --config Release`.
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
-          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
-          # fall back to a bare cl on the runner's default PATH (which lacks the
-          # vcvars include/lib environment and fails with C1083 stdbool.h).
-          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           # Source vcvarsall into THIS session so cl.exe is on PATH for CMake's
@@ -210,7 +204,7 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          & cmake -S . -B build -G `Ninja Multi-Config` $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          & cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Build (Release, explicit --config)
@@ -220,9 +214,9 @@ jobs:
           $jobs = [Environment]::ProcessorCount
           & cmake --build build --config Release -j $jobs 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/build.log
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
-          # Ninja Multi-Config + --config Release places outputs in build\bin
-          # (not build\bin\Release). Search both to be safe, and verify the
-          # expected artifacts exist before reporting the bin dir.
+          # VS generator + --config Release places outputs in build\bin\Release.
+          # Search both build\bin and build\bin\Release to be safe, and verify
+          # the expected artifacts exist before reporting the bin dir.
           $binDir = "build\bin"
           if (-not (Test-Path (Join-Path $binDir "llama-server.exe"))) { $binDir = "build\bin\Release" }
           foreach ($exe in @('llama-server.exe','llama-bench.exe')) {
@@ -580,12 +574,6 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
-          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
-          # fall back to a bare cl on the runner's default PATH (which lacks the
-          # vcvars include/lib environment and fails with C1083 stdbool.h).
-          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
@@ -599,7 +587,7 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          & cmake -S . -B build -G `Ninja Multi-Config` $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          & cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Build (Release, explicit --config)
@@ -937,12 +925,6 @@ jobs:
         shell: pwsh
         run: |
           $cmakeArgs = @('-DGGML_CUDA=ON','-DGGML_BACKEND_DL=ON','-DGGML_NATIVE=OFF')
-          # CRITICAL: explicitly set the MSVC compilers so CMake/Ninja does not
-          # fall back to a bare cl on the runner's default PATH (which lacks the
-          # vcvars include/lib environment and fails with C1083 stdbool.h).
-          $cmakeArgs += '-DCMAKE_C_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_CXX_COMPILER=cl'
-          $cmakeArgs += '-DCMAKE_BUILD_TYPE=Release'
           $cmakeArgs | Out-File -FilePath $env:RUNNER_TEMP/cmake_args.txt -Encoding utf8
           Write-Host "CMake args: $($cmakeArgs -join ' ')"
           $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
@@ -956,7 +938,7 @@ jobs:
             }
           }
           Write-Host "MSVC env exported. cl.exe on PATH: $(if (Get-Command cl -ErrorAction SilentlyContinue) { 'yes' } else { 'NO' })"
-          & cmake -S . -B build -G `Ninja Multi-Config` $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
+          & cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 $($cmakeArgs -join ' ') 2>&1 | Tee-Object -FilePath $env:RUNNER_TEMP/configure.log
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed (exit $LASTEXITCODE)" }
 
       - name: Build (Release, explicit --config)
