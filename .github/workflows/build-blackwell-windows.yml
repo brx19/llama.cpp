@@ -381,37 +381,29 @@ jobs:
         shell: pwsh
         run: |
           $dist = 'dist'
-          # download-artifact@v4 extracts each artifact into dist\<name>/ and
-          # may LOCK the source .zip files on Windows. So we CANNOT extract
-          # them in place with ZipFile.ExtractToDirectory (Access denied).
-          # Instead: find the 3 zips, COPY them to a temp dir, then extract
-          # the copies into a new staging dir.
+          # download-artifact@v4 extracts each artifact into dist\<name>/.
+          # Use Expand-Archive (PowerShell built-in, already used by the
+          # "Validate final ZIP structure" step) to extract the 3 zips into a
+          # NEW empty staging dir. Avoids .NET ZipFile.ExtractToDirectory
+          # (access-denied) and 7z path issues.
           $cpuZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cpu-x64.zip' | Select-Object -First 1
           $cudaZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cuda-13.3-x64-tma.zip' | Select-Object -First 1
           $cudartZip = Get-ChildItem -Path $dist -Recurse -Filter 'cudart-llama-bin-win-cuda-13.3-x64.zip' | Select-Object -First 1
           if (-not $cpuZip) { throw "CPU toolset artifact not found" }
           if (-not $cudaZip) { throw "TMA CUDA backend artifact not found" }
           if (-not $cudartZip) { throw "CUDA runtime artifact not found" }
-          # Copy the 3 zips to a temp dir to avoid file-lock issues.
-          $src = Join-Path $env:RUNNER_TEMP 'tma-src'
+          Write-Host "Found: $($cpuZip.FullName), $($cudaZip.FullName), $($cudartZip.FullName)"
+          # NEW empty staging dir
           $stage = Join-Path $env:RUNNER_TEMP 'tma-merge'
-          foreach ($d in @($src, $stage)) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
-          New-Item -ItemType Directory -Path $src -Force | Out-Null
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          Copy-Item $cpuZip.FullName  (Join-Path $src 'cpu.zip')  -Force
-          Copy-Item $cudaZip.FullName (Join-Path $src 'cuda.zip') -Force
-          Copy-Item $cudartZip.FullName (Join-Path $src 'cudart.zip') -Force
-          # Extract with 7z (already on the runner, used by the build jobs).
-          # .NET ZipFile.ExtractToDirectory fails with Access-denied on the
-          # downloaded/locked ZIPs; 7z x is the reliable path.
-          Push-Location $stage
-          7z x -y (Join-Path $src 'cpu.zip')
-          if ($LASTEXITCODE -ne 0) { throw "7z extract cpu.zip failed (exit $LASTEXITCODE)" }
-          7z x -y (Join-Path $src 'cuda.zip')
-          if ($LASTEXITCODE -ne 0) { throw "7z extract cuda.zip failed (exit $LASTEXITCODE)" }
-          7z x -y (Join-Path $src 'cudart.zip')
-          if ($LASTEXITCODE -ne 0) { throw "7z extract cudart.zip failed (exit $LASTEXITCODE)" }
-          Pop-Location
+          # Extract all three with Expand-Archive (robust, no file-lock issues).
+          Expand-Archive -Path $cpuZip.FullName  -DestinationPath $stage -Force
+          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cpu failed" }
+          Expand-Archive -Path $cudaZip.FullName -DestinationPath $stage -Force
+          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cuda failed" }
+          Expand-Archive -Path $cudartZip.FullName -DestinationPath $stage -Force
+          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cudart failed" }
           # Validate final staging for the required files.
           $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
           Write-Host "Merged staging contents ($($files.Count) files):"
