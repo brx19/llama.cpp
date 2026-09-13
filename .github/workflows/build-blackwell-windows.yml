@@ -401,11 +401,17 @@ jobs:
           Copy-Item $cpuZip.FullName  (Join-Path $src 'cpu.zip')  -Force
           Copy-Item $cudaZip.FullName (Join-Path $src 'cuda.zip') -Force
           Copy-Item $cudartZip.FullName (Join-Path $src 'cudart.zip') -Force
-          # Extract the COPIES (not the locked originals) into the staging dir.
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cpu.zip'), $stage)
-          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cuda.zip'), $stage)
-          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cudart.zip'), $stage)
+          # Extract with 7z (already on the runner, used by the build jobs).
+          # .NET ZipFile.ExtractToDirectory fails with Access-denied on the
+          # downloaded/locked ZIPs; 7z x is the reliable path.
+          Push-Location $stage
+          7z x -y (Join-Path $src 'cpu.zip')
+          if ($LASTEXITCODE -ne 0) { throw "7z extract cpu.zip failed (exit $LASTEXITCODE)" }
+          7z x -y (Join-Path $src 'cuda.zip')
+          if ($LASTEXITCODE -ne 0) { throw "7z extract cuda.zip failed (exit $LASTEXITCODE)" }
+          7z x -y (Join-Path $src 'cudart.zip')
+          if ($LASTEXITCODE -ne 0) { throw "7z extract cudart.zip failed (exit $LASTEXITCODE)" }
+          Pop-Location
           # Validate final staging for the required files.
           $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
           Write-Host "Merged staging contents ($($files.Count) files):"
