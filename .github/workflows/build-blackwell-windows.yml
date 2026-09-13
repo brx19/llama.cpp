@@ -368,8 +368,19 @@ jobs:
           $cudaBin = Join-Path $cudaDir 'bin'
           $searchDirs = @()
           if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          # The windows-setup-cuda action extracts the redist archives under
+          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
+          # directories and xcopy's them into $CUDA_PATH, but the archives
+          # themselves remain on disk with their runtime DLLs under
+          # <archive-dir>/bin/x64/. Search those too (and any other
+          # subdirectory) so staging is layout-agnostic.
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $searchDirs += $_.FullName
+            $nested = Join-Path $_.FullName 'bin'
+            if (Test-Path $nested) { $searchDirs += $nested }
+          }
           foreach ($d in $searchDirs) {
+            if (-not (Test-Path $d)) { continue }
             Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
@@ -838,8 +849,19 @@ jobs:
           $cudaBin = Join-Path $cudaDir 'bin'
           $searchDirs = @()
           if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          # The windows-setup-cuda action extracts the redist archives under
+          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
+          # directories and xcopy's them into $CUDA_PATH, but the archives
+          # themselves remain on disk with their runtime DLLs under
+          # <archive-dir>/bin/x64/. Search those too (and any other
+          # subdirectory) so staging is layout-agnostic.
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $searchDirs += $_.FullName
+            $nested = Join-Path $_.FullName 'bin'
+            if (Test-Path $nested) { $searchDirs += $nested }
+          }
           foreach ($d in $searchDirs) {
+            if (-not (Test-Path $d)) { continue }
             Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
@@ -1288,8 +1310,19 @@ jobs:
           $cudaBin = Join-Path $cudaDir 'bin'
           $searchDirs = @()
           if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          # The windows-setup-cuda action extracts the redist archives under
+          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
+          # directories and xcopy's them into $CUDA_PATH, but the archives
+          # themselves remain on disk with their runtime DLLs under
+          # <archive-dir>/bin/x64/. Search those too (and any other
+          # subdirectory) so staging is layout-agnostic.
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $searchDirs += $_.FullName
+            $nested = Join-Path $_.FullName 'bin'
+            if (Test-Path $nested) { $searchDirs += $nested }
+          }
           foreach ($d in $searchDirs) {
+            if (-not (Test-Path $d)) { continue }
             Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
