@@ -271,7 +271,8 @@ jobs:
           # PE import logging for the three critical artifacts (Release CRT
           # imports expected; any debug-CRT import fails the build here and
           # again in pe_validate.py).
-          python - <<'PY'
+          $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check.py'
+          '@
           import struct, sys
           def imports(path):
               d = open(path,'rb').read()
@@ -330,7 +331,8 @@ jobs:
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
           print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
-          PY
+          '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
+          python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
@@ -745,7 +747,8 @@ jobs:
           Write-Host "Release output dir verified: $binDir"
           Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
-          python - <<'PY'
+          $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check_stock.py'
+          '@
           import struct, sys
           def imports(path):
               d = open(path,'rb').read()
@@ -803,7 +806,8 @@ jobs:
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
           print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
-          PY
+          '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
+          python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
@@ -1187,7 +1191,8 @@ jobs:
           Write-Host "Release output dir verified: $binDir"
           Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
-          python - <<'PY'
+          $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check_cutlass.py'
+          '@
           import struct, sys
           def imports(path):
               d = open(path,'rb').read()
@@ -1245,7 +1250,8 @@ jobs:
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
           print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
-          PY
+          '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
+          python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
