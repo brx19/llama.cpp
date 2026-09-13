@@ -365,25 +365,18 @@ jobs:
           # live in $cudaDir\bin for standard toolkit layouts. The official
           # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
           # cublasLt64_13.dll, cudart64_13.dll from that directory.
-          $cudaBin = Join-Path $cudaDir 'bin'
-          $searchDirs = @()
-          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          # The windows-setup-cuda action extracts the redist archives under
-          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
-          # directories and xcopy's them into $CUDA_PATH, but the archives
-          # themselves remain on disk with their runtime DLLs under
-          # <archive-dir>/bin/x64/. Search those too (and any other
-          # subdirectory) so staging is layout-agnostic.
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $searchDirs += $_.FullName
-            $nested = Join-Path $_.FullName 'bin'
-            if (Test-Path $nested) { $searchDirs += $nested }
-          }
-          foreach ($d in $searchDirs) {
-            if (-not (Test-Path $d)) { continue }
-            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          $stagedCuda = @()
+          # The windows-setup-cuda action installs CUDA 13.3 from redist
+          # archives. Their runtime DLLs (cudart64_13.dll, cublas64_13.dll,
+          # cublasLt64_13.dll) live under <archive-dir>/bin/x64/ inside
+          # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
+          # depth) and stage matching runtime DLLs from each - layout-agnostic.
+          $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          foreach ($d in $cudaSubDirs) {
+            Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
@@ -846,25 +839,18 @@ jobs:
           # live in $cudaDir\bin for standard toolkit layouts. The official
           # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
           # cublasLt64_13.dll, cudart64_13.dll from that directory.
-          $cudaBin = Join-Path $cudaDir 'bin'
-          $searchDirs = @()
-          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          # The windows-setup-cuda action extracts the redist archives under
-          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
-          # directories and xcopy's them into $CUDA_PATH, but the archives
-          # themselves remain on disk with their runtime DLLs under
-          # <archive-dir>/bin/x64/. Search those too (and any other
-          # subdirectory) so staging is layout-agnostic.
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $searchDirs += $_.FullName
-            $nested = Join-Path $_.FullName 'bin'
-            if (Test-Path $nested) { $searchDirs += $nested }
-          }
-          foreach ($d in $searchDirs) {
-            if (-not (Test-Path $d)) { continue }
-            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          $stagedCuda = @()
+          # The windows-setup-cuda action installs CUDA 13.3 from redist
+          # archives. Their runtime DLLs (cudart64_13.dll, cublas64_13.dll,
+          # cublasLt64_13.dll) live under <archive-dir>/bin/x64/ inside
+          # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
+          # depth) and stage matching runtime DLLs from each - layout-agnostic.
+          $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          foreach ($d in $cudaSubDirs) {
+            Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
@@ -1307,25 +1293,18 @@ jobs:
           # live in $cudaDir\bin for standard toolkit layouts. The official
           # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
           # cublasLt64_13.dll, cudart64_13.dll from that directory.
-          $cudaBin = Join-Path $cudaDir 'bin'
-          $searchDirs = @()
-          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
-          # The windows-setup-cuda action extracts the redist archives under
-          # $CUDA_PATH as <component>-windows-x86_64-<version>-archive/
-          # directories and xcopy's them into $CUDA_PATH, but the archives
-          # themselves remain on disk with their runtime DLLs under
-          # <archive-dir>/bin/x64/. Search those too (and any other
-          # subdirectory) so staging is layout-agnostic.
-          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $searchDirs += $_.FullName
-            $nested = Join-Path $_.FullName 'bin'
-            if (Test-Path $nested) { $searchDirs += $nested }
-          }
-          foreach ($d in $searchDirs) {
-            if (-not (Test-Path $d)) { continue }
-            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          $stagedCuda = @()
+          # The windows-setup-cuda action installs CUDA 13.3 from redist
+          # archives. Their runtime DLLs (cudart64_13.dll, cublas64_13.dll,
+          # cublasLt64_13.dll) live under <archive-dir>/bin/x64/ inside
+          # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
+          # depth) and stage matching runtime DLLs from each - layout-agnostic.
+          $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          foreach ($d in $cudaSubDirs) {
+            Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -File -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
