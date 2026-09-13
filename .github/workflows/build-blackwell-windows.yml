@@ -361,12 +361,18 @@ jobs:
           $cudaDir = $env:CUDA_PATH
           if (-not $cudaDir) { throw "CUDA_PATH is not set; cannot stage CUDA runtime DLLs" }
           $stagedCuda = @()
-          $cudaDirs = @()
-          Get-ChildItem $cudaDir -Directory | ForEach-Object { $cudaDirs += $_.FullName }
-          foreach ($d in $cudaDirs) {
-            Get-ChildItem $d -Filter 'cudart64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          # CUDA runtime DLLs (cudart64_*.dll, cublas64_*.dll, cublasLt64_*.dll)
+          # live in $cudaDir\bin for standard toolkit layouts. The official
+          # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
+          # cublasLt64_13.dll, cudart64_13.dll from that directory.
+          $cudaBin = Join-Path $cudaDir 'bin'
+          $searchDirs = @()
+          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          foreach ($d in $searchDirs) {
+            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
@@ -825,12 +831,18 @@ jobs:
           $cudaDir = $env:CUDA_PATH
           if (-not $cudaDir) { throw "CUDA_PATH is not set; cannot stage CUDA runtime DLLs" }
           $stagedCuda = @()
-          $cudaDirs = @()
-          Get-ChildItem $cudaDir -Directory | ForEach-Object { $cudaDirs += $_.FullName }
-          foreach ($d in $cudaDirs) {
-            Get-ChildItem $d -Filter 'cudart64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          # CUDA runtime DLLs (cudart64_*.dll, cublas64_*.dll, cublasLt64_*.dll)
+          # live in $cudaDir\bin for standard toolkit layouts. The official
+          # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
+          # cublasLt64_13.dll, cudart64_13.dll from that directory.
+          $cudaBin = Join-Path $cudaDir 'bin'
+          $searchDirs = @()
+          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          foreach ($d in $searchDirs) {
+            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
@@ -1269,12 +1281,18 @@ jobs:
           $cudaDir = $env:CUDA_PATH
           if (-not $cudaDir) { throw "CUDA_PATH is not set; cannot stage CUDA runtime DLLs" }
           $stagedCuda = @()
-          $cudaDirs = @()
-          Get-ChildItem $cudaDir -Directory | ForEach-Object { $cudaDirs += $_.FullName }
-          foreach ($d in $cudaDirs) {
-            Get-ChildItem $d -Filter 'cudart64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
-            Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+          # CUDA runtime DLLs (cudart64_*.dll, cublas64_*.dll, cublasLt64_*.dll)
+          # live in $cudaDir\bin for standard toolkit layouts. The official
+          # 13.3 x64 cudart release zip ships exactly cublas64_13.dll,
+          # cublasLt64_13.dll, cudart64_13.dll from that directory.
+          $cudaBin = Join-Path $cudaDir 'bin'
+          $searchDirs = @()
+          if (Test-Path $cudaBin) { $searchDirs += $cudaBin }
+          Get-ChildItem $cudaDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { $searchDirs += $_.FullName }
+          foreach ($d in $searchDirs) {
+            Get-ChildItem $d -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
+            Get-ChildItem $d -Filter 'cublasLt64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
           Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
