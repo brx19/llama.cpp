@@ -266,7 +266,7 @@ jobs:
             throw "expected $binDir\llama-server.exe - Release build did not produce it"
           }
           Write-Host "Release output dir verified: $binDir"
-          Write-Host "Recursing $binDir:"
+          Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
           # PE import logging for the three critical artifacts (Release CRT
           # imports expected; any debug-CRT import fails the build here and
@@ -366,7 +366,7 @@ jobs:
             Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
-          Write-Host "CUDA runtime DLLs staged from $cudaDir:"
+          Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
           # Sanity: dependency closure requires the CUDA runtime in the package.
           $allD = (Get-ChildItem $stage -Filter *.dll).Name
@@ -743,7 +743,7 @@ jobs:
             throw "expected $binDir\llama-server.exe - Release build did not produce it"
           }
           Write-Host "Release output dir verified: $binDir"
-          Write-Host "Recursing $binDir:"
+          Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
           python - <<'PY'
           import struct, sys
@@ -828,7 +828,7 @@ jobs:
             Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
-          Write-Host "CUDA runtime DLLs staged from $cudaDir:"
+          Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
           $allD = (Get-ChildItem $stage -Filter *.dll).Name
           if (-not ($allD | Where-Object { $_ -like 'cudart64*' })) { throw "no cudart64_*.dll staged; package cannot run standalone" }
@@ -1185,7 +1185,7 @@ jobs:
             throw "expected $binDir\llama-server.exe - Release build did not produce it"
           }
           Write-Host "Release output dir verified: $binDir"
-          Write-Host "Recursing $binDir:"
+          Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
           python - <<'PY'
           import struct, sys
@@ -1270,7 +1270,7 @@ jobs:
             Get-ChildItem $d -Filter 'cublas64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -Filter 'cublasLt64_*.dll' | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
           }
-          Write-Host "CUDA runtime DLLs staged from $cudaDir:"
+          Write-Host "CUDA runtime DLLs staged from ${cudaDir}:"
           $stagedCuda | ForEach-Object { Write-Host "  cuda $_" }
           $allD = (Get-ChildItem $stage -Filter *.dll).Name
           if (-not ($allD | Where-Object { $_ -like 'cudart64*' })) { throw "no cudart64_*.dll staged; package cannot run standalone" }
