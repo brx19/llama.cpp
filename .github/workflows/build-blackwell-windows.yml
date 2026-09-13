@@ -134,7 +134,6 @@ jobs:
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CPU_ALL_VARIANTS=ON ^
             -DGGML_OPENMP=ON ^
-            -DGGML_OPENMP_FETCH=ON ^
             -DGGML_RPC=ON ^
             -DGGML_CUDA=OFF
           if errorlevel 1 (echo [FATAL] cmake configure failed & exit /b 1)
