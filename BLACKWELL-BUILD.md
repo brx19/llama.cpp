@@ -173,81 +173,106 @@ NVFP4 model when repacking applies. **GPU validation required.**
 
 File: `.github/workflows/build-blackwell-windows.yml`
 
-* **Runner:** `windows-2022` (same as the official llama.cpp
-  `.github/workflows/build-cuda-windows.yml`).
+> **Architecture (redesigned 2026-09-13):** the workflow now mirrors the
+> **current official ggml-org/llama.cpp Windows release pipeline**
+> (`.github/workflows/release.yml`) rather than a single monolithic TMA
+> build. It builds the CPU toolset and the CUDA backend **separately**,
+> then merges them — exactly as upstream assembles its Windows CUDA release
+> from `windows-cpu` + `windows-cuda` + the CUDA runtime.
+
+* **Scope:** **TMA only** (stock / CUTLASS are NOT built until this
+  architecture has produced one successful TMA ZIP).
+* **Trigger:** `workflow_dispatch` only; input `publish_release` (boolean).
+* **Runner:** `windows-2022` (same as upstream `windows-cuda`).
 * **CUDA:** **13.3** x64, installed from NVIDIA redist archives via the
   official composite action `.github/actions/windows-setup-cuda`
   (nvcc **13.3.33**, cuBLAS **13.5.1.27**).
-* **Generator:** Ninja Multi-Config (choco ninja), Release config.
-* **Architecture:** `-DCMAKE_CUDA_ARCHITECTURES=120a-real` — the
-  architecture-specific Blackwell target (FP4 tensor cores are NOT
-  forward-compatible; they require `12Xa`). The workflow verifies the CMake
-  resolution (`Using CMAKE_CUDA_ARCHITECTURES=120a-real`) and greps the build
-  log for `sm_120a` evidence.
-* **Base CMake flags** (mirroring the official Windows CI):
-  `-DGGML_CUDA=ON -DGGML_BACKEND_DL=ON -DGGML_NATIVE=OFF`
-  plus, for the cutlass variant only, `-DGGML_CUDA_CUTLASS=ON`.
-* **No** `GGML_CUDA_FORCE_CUBLAS` / `GGML_CUDA_FORCE_MMQ` — stock dispatch is
-  preserved so all variants are A/B-comparable.
+* **Generator:** Ninja Multi-Config (choco ninja), **`--config Release`**
+  (explicit — Ninja Multi-Config ignores `-DCMAKE_BUILD_TYPE`).
+
+### Job graph
+
+| Job | Purpose | Output |
+|---|---|---|
+| **A `build-windows-cpu`** | Full Windows toolset from the **`blackwell/tma`** tree, **CUDA OFF**, BoringSSL ON. Upstream `windows-cpu` recipe. | `llama-bin-win-cpu-x64.zip` (whole `build\bin\Release\`) |
+| **B `build-tma-cuda`** | **Only `ggml-cuda.dll`** from the **`blackwell/tma`** tree, CUDA 13.3, `-DCMAKE_CUDA_ARCHITECTURES=120a-real`. Upstream `windows-cuda` recipe (`--target ggml-cuda`). | `llama-bin-win-cuda-13.3-x64-tma.zip` |
+| **C `cuda-runtime`** | CUDA 13.3 runtime DLLs staged with upstream's **exact** `robocopy` commands from the installed toolkit. | `cudart-llama-bin-win-cuda-13.3-x64.zip` |
+| **D `merge-tma-package`** | Injects A + B + C into ONE self-contained package, writes `BUILD-METADATA.json` + `SHA256SUMS.txt`, runs `pe_validate.py` as a final sanity check, creates the final ZIP. | `llama-win-cuda13.3-sm120a-tma-<sha>.zip` |
+| `publish-release` | Optional (input `publish_release`). | GitHub release asset |
+
+### ABI-coherence note
+
+Jobs A and B **both build from the same `blackwell/tma` source tree**. The
+TMA delta (PR #28572) is confined to `ggml/src/ggml-cuda/*` (verified:
+`cp-async.cuh`, `mmq-vec-dot.cuh`, `mmq.cu`, `mmq.cuh`), so building the CPU
+toolset from that tree yields the official upstream-style Windows x64 toolset
+while the TMA backend is exactly the replaced `ggml-cuda.dll`. The merged
+package is therefore ABI-coherent. The "CPU runtime source SHA" in
+`BUILD-METADATA.json` is `blackwell/tma` head — its tree is
+upstream-base + the 4 CUDA-backend files.
+
+> The final package is intentionally a **superset** of the official CUDA
+> backend ZIP: upstream distributes the CUDA runtime DLLs separately
+> (`cudart-llama-bin-win-cuda-13.3-x64.zip`); we bundle them so the package
+> is directly runnable without merging another archive.
 
 ### Triggering a build
 
 ```powershell
-gh workflow run build-blackwell-windows.yml --ref master -f variant=all
-# or a single variant:
-gh workflow run build-blackwell-windows.yml --ref master -f variant=stock
+gh workflow run build-blackwell-windows.yml --ref master
+# optional: publish to a GitHub release
+gh workflow run build-blackwell-windows.yml --ref master -f publish_release=true
 ```
 
-GitHub UI: Actions → "CI (Blackwell, windows)" → Run workflow → pick variant.
-
-### Variants
-
-| Variant | Source branch | CMake delta |
-|---|---|---|
-| `stock` | `master` | — |
-| `tma` | `blackwell/tma` | — |
-| `cutlass` | `blackwell/cutlass` | `-DGGML_CUDA_CUTLASS=ON` |
-| `all` | (matrix) | as above |
-| `combined` | **not built** | — |
+GitHub UI: Actions → "CI (Blackwell TMA, windows)" → Run workflow.
 
 ### Artifact naming
 
 ```
-llama-win-cuda13.3-sm120a-stock-<shortsha>.zip
-llama-win-cuda13.3-sm120a-tma-<shortsha>.zip
-llama-win-cuda13.3-sm120a-cutlass-<shortsha>.zip
+llama-win-cuda13.3-sm120a-tma-<sha>.zip
 ```
 
 ### ZIP contents
 
 ```
 llama-server.exe
+llama-server-impl.dll
 llama-bench.exe
-ggml*.dll                    (ggml.dll, ggml-cuda.dll, etc.)
-cudart64_13.dll             (CUDA runtime)
-cublas64_13.dll, cublasLt64_13.dll
-nvvm64.dll, nvrtc64_130_*.dll
-nvinfer/nvonnxparser (if present)
+llama.dll
+llama-common.dll
+ggml.dll
+ggml-base.dll
+ggml-cpu-*.dll                 (CPU backend variants)
+ggml-cuda.dll                  (TMA / Blackwell backend, 120a-real)
+cudart64_*.dll                (CUDA 13.3 runtime)
+cublas64_*.dll
+cublasLt64_*.dll
 BUILD-METADATA.json
 SHA256SUMS.txt
+PE-VALIDATE-REPORT.json
 ```
 
-`BUILD-METADATA.json` contains: variant, build timestamp, source branch,
-source SHA, upstream base SHA, original PR SHA, Actions run ID, runner image,
-MSVC version, CUDA version, CUDA component versions, CMake version, Ninja
-version, CMake arguments, CUDA architecture, CUTLASS enabled + revision,
-target GPU, and the GPU-validation marker.
+`BUILD-METADATA.json` contains: variant (`tma`), build timestamp,
+upstream base SHA, TMA SHA, original PR #28572 head SHA, CUDA version
+(13.3), `CMAKE_CUDA_ARCHITECTURES` (`120a-real`), configuration
+(`Release`), CPU runtime source SHA, CUDA backend source SHA, MSVC version,
+CUDA/CMake/Ninja versions, Actions run ID, runner image, target GPU, and the
+GPU-validation marker.
 
 `SHA256SUMS.txt` covers every packaged `.exe`/`.dll`.
 
 ### Validation performed on CI (no GPU)
 
-* build completes,
-* expected EXEs/DLLs exist,
-* CMake resolved `CMAKE_CUDA_ARCHITECTURES=120a-real`,
-* build log contains `sm_120a` device-code evidence,
-* ZIP created and re-validated (structure, metadata JSON, all hashes),
-* executable version metadata queried (no CUDA init).
+* build completes (A: full toolset; B: `ggml-cuda.dll` only),
+* expected EXEs/DLLs exist in each job,
+* merged staging validated for the full required file set,
+* ZIP created and re-validated (structure, metadata JSON, all SHA256),
+* `pe_validate.py` run as a **final sanity check** on the merged staging:
+  * fails on any Debug CRT import (`ucrtbased.dll`, `msvcp140d.dll`,
+    `vcruntime140d.dll`, `vcruntime140_1d.dll`),
+  * verifies the PE dependency closure of the root executables (no missing
+    non-system, non-NVIDIA-driver imports — `nvcuda64.dll` is host-provided),
+  * writes `PE-VALIDATE-REPORT.json`.
 
 **GPU runtime correctness is NOT verified on CI.** Every package is marked
 `REQUIRES LOCAL RTX 5090 VALIDATION`.
@@ -260,22 +285,14 @@ target GPU, and the GPU-validation marker.
 
 ### Publishing releases
 
-The workflow has a `publish_release` input (default `false`). When true,
-successful builds are attached to a deterministic release tag:
+The workflow has a `publish_release` input (default `false`). When true, the
+successful TMA build is attached to a deterministic release tag:
 
 ```
-blackwell-build-<YYYYMMDD>-<upstream-sha10>
+blackwell-tma-<YYYYMMDD>-<sha10>
 ```
 
-Failed runs never publish. To publish manually after a build:
-
-```powershell
-gh release create blackwell-build-$(Get-Date -Format yyyyMMdd)-<sha10> `
-  llama-win-cuda13.3-sm120a-stock-*.zip `
-  llama-win-cuda13.3-sm120a-tma-*.zip `
-  llama-win-cuda13.3-sm120a-cutlass-*.zip `
-  --title "Blackwell Windows builds"
-```
+Failed runs never publish.
 
 ---
 

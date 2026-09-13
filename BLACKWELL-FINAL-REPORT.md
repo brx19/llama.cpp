@@ -108,3 +108,67 @@ Date: 2026-09-11 | Operator: Hermes (brx19 / BrX) | Upstream: ggml-org/llama.cpp
 2. Run `scripts/Sync-Upstream.ps1` to sync master to `upstream/master` (`5bda51bf`) + rebase branches (upstream drifted after the fork was built).
 3. Optionally delete the inherited `model-naming` workflow to declutter the fork's run list.
 4. On the RTX 5090 host: extract a ZIP, confirm `llama-server.exe` loads the RTX 5090 (CC 12.0), then A/B `stock` vs `tma` vs `cutlass` on the Qwen3.8-27B NVFP4 MTP workload (~196K context) for real perf numbers.
+
+---
+
+## 15. ARCHITECTURE REDESIGN (2026-09-13) — supersedes sections 6, 9, 13
+
+The monolithic single-job TMA build was **replaced** with a split
+architecture mirroring the current official upstream Windows release
+pipeline (`release.yml`). The sections above describe the **old**
+monolithic architecture; this section supersedes them for the workflow.
+
+### What changed
+
+* **No more monolithic build.** The single `build-tma-cuda` job that built
+  `llama-server` + the full CUDA package is gone.
+* **No more custom packaging.** The recursive CUDA directory scan
+  (`cudaSubDirs`), the embedded Python in PowerShell, the manually
+  reconstructed Release runtime (`build-runtime-manifest.json`), and the
+  hand-maintained 54-file official parity list
+  (`official-win-cuda-13.3-x64-files.txt`) are **all deleted**.
+* **No more variant matrix.** `stock` / `cutlass` / `all` / `combined` are
+  **not built** (TMA only, per scope).
+* The workflow now mirrors upstream `release.yml`:
+  * **Job A `build-windows-cpu`** — full toolset from `blackwell/tma`, CUDA
+    OFF, BoringSSL ON (upstream `windows-cpu` recipe).
+  * **Job B `build-tma-cuda`** — only `ggml-cuda.dll` (120a-real, CUDA 13.3)
+    (upstream `windows-cuda` recipe).
+  * **Job C `cuda-runtime`** — CUDA 13.3 runtime DLLs via upstream's exact
+    `robocopy` commands.
+  * **Job D `merge-tma-package`** — merges A+B+C into one self-contained
+    `llama-win-cuda13.3-sm120a-tma-<sha>.zip`, writes `BUILD-METADATA.json`
+    + `SHA256SUMS.txt`, runs `pe_validate.py` as a final sanity check.
+
+### Phase 1 verification (backend-only)
+
+The TMA delta (PR #28572) was verified to be **CUDA-backend-only**:
+
+```
+git diff --name-only 16378d93f...blackwell/tma
+  ggml/src/ggml-cuda/cp-async.cuh    (new)
+  ggml/src/ggml-cuda/mmq-vec-dot.cuh
+  ggml/src/ggml-cuda/mmq.cu
+  ggml/src/ggml-cuda/mmq.cuh
+```
+
+Upstream base SHA: `16378d93f94012d4228c8c7683adce3f286aee5d`. No
+ABI-relevant files outside `ggml/src/ggml-cuda/` are touched, so the CPU
+toolset built from the same tree is the official upstream-style Windows x64
+toolset.
+
+### Validation
+
+`pe_validate.py` is now a **final sanity check only** (not a build system):
+it fails on Debug CRT imports and verifies the PE dependency closure of the
+root executables. The primary correctness property now comes from using the
+same packaging structure as upstream.
+
+### Definition of done
+
+Success = one workflow run produces
+`llama-win-cuda13.3-sm120a-tma-<sha>.zip` containing: the complete
+upstream-style Windows x64 toolset, the TMA `ggml-cuda.dll`, matching CUDA
+13.3 runtime DLLs, no Debug CRT dependencies, and complete metadata +
+hashes. Only after this succeeds will the workflow be generalized to Stock
+and CUTLASS.
