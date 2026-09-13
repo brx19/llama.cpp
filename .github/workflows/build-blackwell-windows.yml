@@ -91,17 +91,13 @@ jobs:
         run: |
           $sha = (git rev-parse HEAD).Trim()
           $short = $sha.Substring(0, 10)
-          # upstream source base = merge-base of the branch and the master ref.
-          # actions/checkout may not set up 'origin/master' or 'master' refs
-          # (detached HEAD), so capture git output first and fall back cleanly.
-          # (Do NOT call .Trim() on a possibly-null subexpression — PowerShell
-          #  throws InvalidOperation on null.)
-          $base = ''
-          $out = (git merge-base origin/master HEAD 2>&1 | Out-String).Trim()
-          if ($out -and $out.Length -eq 40 -and $out -match '^[0-9a-f]+$') { $base = $out }
-          if (-not $base) { $out = (git merge-base master HEAD 2>&1 | Out-String).Trim() }
-          if ($out -and $out.Length -eq 40 -and $out -match '^[0-9a-f]+$') { $base = $out }
-          if (-not $base) { $base = $sha }
+          # upstream source base = the commit we build from (HEAD = blackwell/tma).
+          # The TMA delta is backend-only (ggml-cuda/*), so the build source SHA
+          # is the correct provenance anchor. We do NOT attempt git merge-base
+          # here: actions/checkout creates a detached HEAD that may lack a
+          # master ref, and native git 2>&1 redirects can leave a non-zero exit
+          # code that fails the step.
+          $base = $sha
           "sha=$sha" >> $env:GITHUB_OUTPUT
           "short_sha=$short" >> $env:GITHUB_OUTPUT
           "base_sha=$base" >> $env:GITHUB_OUTPUT
@@ -212,12 +208,7 @@ jobs:
         run: |
           $sha = (git rev-parse HEAD).Trim()
           $short = $sha.Substring(0, 10)
-          $base = ''
-          $out = (git merge-base origin/master HEAD 2>&1 | Out-String).Trim()
-          if ($out -and $out.Length -eq 40 -and $out -match '^[0-9a-f]+$') { $base = $out }
-          if (-not $base) { $out = (git merge-base master HEAD 2>&1 | Out-String).Trim() }
-          if ($out -and $out.Length -eq 40 -and $out -match '^[0-9a-f]+$') { $base = $out }
-          if (-not $base) { $base = $sha }
+          $base = $sha
           "sha=$sha" >> $env:GITHUB_OUTPUT
           "short_sha=$short" >> $env:GITHUB_OUTPUT
           "base_sha=$base" >> $env:GITHUB_OUTPUT
