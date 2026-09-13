@@ -381,29 +381,42 @@ jobs:
         shell: pwsh
         run: |
           $dist = 'dist'
-          # download-artifact@v4 extracts each artifact into dist\<name>/.
-          # Use Expand-Archive (PowerShell built-in, already used by the
-          # "Validate final ZIP structure" step) to extract the 3 zips into a
-          # NEW empty staging dir. Avoids .NET ZipFile.ExtractToDirectory
-          # (access-denied) and 7z path issues.
+          # download-artifact@v4 extracts each artifact into dist\<name>/ and
+          # the ZIP files are locked on Windows (Defender/actions framework).
+          # All extraction methods (ZipFile, 7z, Expand-Archive) fail on the
+          # locked source ZIPs. Fix: sleep to let locks release, then Copy-Item
+          # with retry to get an unlocked copy, then Expand-Archive the copies.
           $cpuZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cpu-x64.zip' | Select-Object -First 1
           $cudaZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cuda-13.3-x64-tma.zip' | Select-Object -First 1
           $cudartZip = Get-ChildItem -Path $dist -Recurse -Filter 'cudart-llama-bin-win-cuda-13.3-x64.zip' | Select-Object -First 1
           if (-not $cpuZip) { throw "CPU toolset artifact not found" }
           if (-not $cudaZip) { throw "TMA CUDA backend artifact not found" }
           if (-not $cudartZip) { throw "CUDA runtime artifact not found" }
-          Write-Host "Found: $($cpuZip.FullName), $($cudaZip.FullName), $($cudartZip.FullName)"
+          # Sleep to let Windows file-locks / Defender release the downloaded ZIPs.
+          Write-Host "Sleeping 5s to let file-locks release..."
+          Start-Sleep -Seconds 5
+          # Copy the 3 zips to a temp dir with retry (handles residual locks).
+          $src = Join-Path $env:RUNNER_TEMP 'tma-src'
+          if (Test-Path $src) { Remove-Item $src -Recurse -Force }
+          New-Item -ItemType Directory -Path $src -Force | Out-Null
+          $copies = @(@($cpuZip.FullName, 'cpu.zip'), @($cudaZip.FullName, 'cuda.zip'), @($cudartZip.FullName, 'cudart.zip'))
+          foreach ($c in $copies) {
+            $from = $c[0]; $to = Join-Path $src $c[1]
+            $ok = $false
+            for ($i = 0; $i -lt 5 -and -not $ok; $i++) {
+              try { Copy-Item $from $to -Force; $ok = $true }
+              catch { Write-Host "Copy attempt $($i+1) failed: $($_.Exception.Message); retrying in 3s..."; Start-Sleep -Seconds 3 }
+            }
+            if (-not $ok) { throw "Failed to copy $from after 5 attempts" }
+          }
           # NEW empty staging dir
           $stage = Join-Path $env:RUNNER_TEMP 'tma-merge'
           if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # Extract all three with Expand-Archive (robust, no file-lock issues).
-          Expand-Archive -Path $cpuZip.FullName  -DestinationPath $stage -Force
-          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cpu failed" }
-          Expand-Archive -Path $cudaZip.FullName -DestinationPath $stage -Force
-          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cuda failed" }
-          Expand-Archive -Path $cudartZip.FullName -DestinationPath $stage -Force
-          if ($LASTEXITCODE -ne 0) { throw "Expand-Archive cudart failed" }
+          # Extract the COPIES with Expand-Archive (robust, no file-lock issues).
+          Expand-Archive -Path (Join-Path $src 'cpu.zip')  -DestinationPath $stage -Force
+          Expand-Archive -Path (Join-Path $src 'cuda.zip') -DestinationPath $stage -Force
+          Expand-Archive -Path (Join-Path $src 'cudart.zip') -DestinationPath $stage -Force
           # Validate final staging for the required files.
           $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
           Write-Host "Merged staging contents ($($files.Count) files):"
