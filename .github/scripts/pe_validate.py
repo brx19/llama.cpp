@@ -331,9 +331,22 @@ def main():
                             f"needed by {', '.join(info['needed_by'])})")
             fatal = True
 
-    # ---- required files ------------------------------------------------------
+    # ---- verify the three critical binaries explicitly --------------------
+    # The package MUST contain llama-server.exe, llama-bench.exe and
+    # ggml-cuda.dll; verify each parses AND is inspected (not silently
+    # skipped).
+    for req in ("llama-server.exe", "llama-bench.exe", "ggml-cuda.dll"):
+        if req.lower() not in imports_by_file:
+            findings.append(f"FATAL: critical binary missing or unparsed: {req}")
+            fatal = True
+        else:
+            print(f"[ok] {req} inspected ({imports_by_file[req]['source']})")
+
+    # ---- required files ----------------------------------------------------
+    # llama-server-impl.dll is REQUIRED: on Windows the .exe is a VS loader
+    # stub that loads the -impl.dll; without it the server cannot start.
     required = ["llama-server.exe", "llama-bench.exe", "llama-server-impl.dll",
-                "ggml.dll", "ggml-base.dll", "ggml-cuda.dll", "ggml-cpu-x64.dll"]
+                "ggml.dll", "ggml-base.dll", "ggml-cuda.dll"]
     for req in required:
         if req not in files:
             findings.append(f"FATAL: required file missing: {req}")
