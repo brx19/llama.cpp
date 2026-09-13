@@ -372,7 +372,7 @@ jobs:
           # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
           # depth) and stage matching runtime DLLs from each - layout-agnostic.
           $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          Write-Host "CUDA subdirectories under $cudaDir: ${cudaSubDirs.Count}"
           foreach ($d in $cudaSubDirs) {
             Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
@@ -846,7 +846,7 @@ jobs:
           # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
           # depth) and stage matching runtime DLLs from each - layout-agnostic.
           $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          Write-Host "CUDA subdirectories under $cudaDir: ${cudaSubDirs.Count}"
           foreach ($d in $cudaSubDirs) {
             Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
@@ -1300,7 +1300,7 @@ jobs:
           # $CUDA_PATH. Enumerate ALL directories under $CUDA_PATH (any
           # depth) and stage matching runtime DLLs from each - layout-agnostic.
           $cudaSubDirs = Get-ChildItem $cudaDir -Directory -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Write-Host "CUDA subdirectories under $cudaDir: ($cudaSubDirs.Count)"
+          Write-Host "CUDA subdirectories under $cudaDir: ${cudaSubDirs.Count}"
           foreach ($d in $cudaSubDirs) {
             Get-ChildItem $d -File -Filter 'cudart64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
             Get-ChildItem $d -File -Filter 'cublas64_*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $stage -Force; $stagedCuda += $_.Name }
