@@ -91,10 +91,11 @@ jobs:
         run: |
           $sha = (git rev-parse HEAD).Trim()
           $short = $sha.Substring(0, 10)
-          # upstream source base = merge-base of origin/master and the branch.
-          # (Fork master = upstream source + tooling, so the merge-base yields
-          #  the true upstream source base SHA.)
-          $base = (git merge-base origin/master HEAD).Trim()
+          # upstream source base = merge-base of the branch and the master ref.
+          # actions/checkout sets a detached HEAD and may only set up 'origin'
+          # for the checked-out ref, so try 'origin/master' then 'master'.
+          $base = (git merge-base origin/master HEAD 2>$null).Trim()
+          if (-not $base) { $base = (git merge-base master HEAD 2>$null).Trim() }
           if (-not $base) { $base = $sha }
           "sha=$sha" >> $env:GITHUB_OUTPUT
           "short_sha=$short" >> $env:GITHUB_OUTPUT
@@ -206,7 +207,8 @@ jobs:
         run: |
           $sha = (git rev-parse HEAD).Trim()
           $short = $sha.Substring(0, 10)
-          $base = (git merge-base origin/master HEAD).Trim()
+          $base = (git merge-base origin/master HEAD 2>$null).Trim()
+          if (-not $base) { $base = (git merge-base master HEAD 2>$null).Trim() }
           if (-not $base) { $base = $sha }
           "sha=$sha" >> $env:GITHUB_OUTPUT
           "short_sha=$short" >> $env:GITHUB_OUTPUT
@@ -314,6 +316,13 @@ jobs:
     runs-on: windows-2022
     name: cuda 13.3 runtime
     steps:
+      - name: Checkout (for local windows-setup-cuda action)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.TMA_BRANCH }}
+          fetch-depth: 1
+
       - name: Install Cuda Toolkit ${{ env.CUDA_VERSION }}
         uses: ./.github/actions/windows-setup-cuda
         with:
