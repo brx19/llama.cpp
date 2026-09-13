@@ -413,10 +413,11 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'tma-merge'
           if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # Extract the COPIES with Expand-Archive (robust, no file-lock issues).
-          Expand-Archive -Path (Join-Path $src 'cpu.zip')  -DestinationPath $stage -Force
-          Expand-Archive -Path (Join-Path $src 'cuda.zip') -DestinationPath $stage -Force
-          Expand-Archive -Path (Join-Path $src 'cudart.zip') -DestinationPath $stage -Force
+          # Extract the COPIES with Python's zipfile (more robust against
+          # Windows file-locks than PowerShell's Expand-Archive).
+          Write-Host "Extracting with Python zipfile (extract_tma_packages.py)..."
+          python .github/scripts/extract_tma_packages.py $src $stage
+          if ($LASTEXITCODE -ne 0) { throw "Python zipfile extraction failed (exit $LASTEXITCODE)" }
           # Validate final staging for the required files.
           $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
           Write-Host "Merged staging contents ($($files.Count) files):"
