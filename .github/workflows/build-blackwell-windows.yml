@@ -326,14 +326,14 @@ jobs:
           '  return names'
           'for exe in (''build/bin/Release/llama-server.exe'',''build/bin/Release/llama-bench.exe'',''build/bin/Release/ggml-cuda.dll''):'
           '  imps = imports(exe)'
-          '  print('== ' + exe + ' imports: ' + ', '.join(imps))'
+          '  print(chr(61) + chr(61) + " " + exe + " imports: " + ", ".join(imps))'
           '  dbg = [i for i in imps if ''140D'' in i or i.lower().startswith((''msvcp140d'',''vcruntime140d'',''ucrtbased''))]'
           '  if dbg:'
           '      raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")'
           'print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")'
           )
           $pyLines -join "`n" | Set-Content -Path $pyFile -Encoding utf8NoBOM
-          $env:PYTHONIOENCODING = "utf8"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
+          $env:PYTHONIOENCODING = "utf8"; $env:PYTHONUTF8 = "1"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
       - name: "Collect runtime package (Release only, whole Release bin dir)"
@@ -801,14 +801,14 @@ jobs:
           '  return names'
           'for exe in (''build/bin/Release/llama-server.exe'',''build/bin/Release/llama-bench.exe'',''build/bin/Release/ggml-cuda.dll''):'
           '  imps = imports(exe)'
-          '  print('== ' + exe + ' imports: ' + ', '.join(imps))'
+          '  print(chr(61) + chr(61) + " " + exe + " imports: " + ", ".join(imps))'
           '  dbg = [i for i in imps if ''140D'' in i or i.lower().startswith((''msvcp140d'',''vcruntime140d'',''ucrtbased''))]'
           '  if dbg:'
           '      raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")'
           'print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")'
           )
           $pyLines -join "`n" | Set-Content -Path $pyFile -Encoding utf8NoBOM
-          $env:PYTHONIOENCODING = "utf8"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
+          $env:PYTHONIOENCODING = "utf8"; $env:PYTHONUTF8 = "1"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
       - name: "Collect runtime package (Release only, whole Release bin dir)"
@@ -1245,14 +1245,14 @@ jobs:
           '  return names'
           'for exe in (''build/bin/Release/llama-server.exe'',''build/bin/Release/llama-bench.exe'',''build/bin/Release/ggml-cuda.dll''):'
           '  imps = imports(exe)'
-          '  print('== ' + exe + ' imports: ' + ', '.join(imps))'
+          '  print(chr(61) + chr(61) + " " + exe + " imports: " + ", ".join(imps))'
           '  dbg = [i for i in imps if ''140D'' in i or i.lower().startswith((''msvcp140d'',''vcruntime140d'',''ucrtbased''))]'
           '  if dbg:'
           '      raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")'
           'print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")'
           )
           $pyLines -join "`n" | Set-Content -Path $pyFile -Encoding utf8NoBOM
-          $env:PYTHONIOENCODING = "utf8"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
+          $env:PYTHONIOENCODING = "utf8"; $env:PYTHONUTF8 = "1"; python $pyFile; if ($LASTEXITCODE -ne 0) { throw "PE import inspection failed" }
           "bin_dir=build\bin\Release" >> $env:GITHUB_OUTPUT
 
       - name: "Collect runtime package (Release only, whole Release bin dir)"
