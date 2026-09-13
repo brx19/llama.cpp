@@ -243,12 +243,13 @@ jobs:
           )
 
           rem ===== 5. Build Release EXPLICITLY (-j from processor count) =====
+          rem Single-line invocation: a cmd `if ( ... )` block must be a ONE-
+          rem LINE compound command, so the check lives on the same line.
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build --config Release -j %NINJA_JOBS%
-          if errorlevel 1 (
-            echo [FATAL] cmake build (Release) failed
-            exit /b 1
-          )
+          cmake --build build --config Release -j %NINJA_JOBS% && goto :okbuild
+          echo [FATAL] cmake build (Release) failed
+          exit /b 1
+          :okbuild
 
       - name: "Verify Release output dir + log PE imports (Release guard)"
         id: verify
@@ -723,12 +724,13 @@ jobs:
           )
 
           rem ===== 5. Build Release EXPLICITLY (-j from processor count) =====
+          rem Single-line invocation: a cmd `if ( ... )` block must be a ONE-
+          rem LINE compound command, so the check lives on the same line.
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build --config Release -j %NINJA_JOBS%
-          if errorlevel 1 (
-            echo [FATAL] cmake build (Release) failed
-            exit /b 1
-          )
+          cmake --build build --config Release -j %NINJA_JOBS% && goto :okbuild
+          echo [FATAL] cmake build (Release) failed
+          exit /b 1
+          :okbuild
 
       - name: "Verify Release output dir + log PE imports (Release guard)"
         id: verify
@@ -1164,12 +1166,13 @@ jobs:
           )
 
           rem ===== 5. Build Release EXPLICITLY (-j from processor count) =====
+          rem Single-line invocation: a cmd `if ( ... )` block must be a ONE-
+          rem LINE compound command, so the check lives on the same line.
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build --config Release -j %NINJA_JOBS%
-          if errorlevel 1 (
-            echo [FATAL] cmake build (Release) failed
-            exit /b 1
-          )
+          cmake --build build --config Release -j %NINJA_JOBS% && goto :okbuild
+          echo [FATAL] cmake build (Release) failed
+          exit /b 1
+          :okbuild
 
       - name: "Verify Release output dir + log PE imports (Release guard)"
         id: verify
