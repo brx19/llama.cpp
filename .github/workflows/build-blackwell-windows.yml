@@ -381,22 +381,31 @@ jobs:
         shell: pwsh
         run: |
           $dist = 'dist'
-          # download-artifact@v4 extracts each artifact into dist\<name>/
+          # download-artifact@v4 extracts each artifact into dist\<name>/ and
+          # may LOCK the source .zip files on Windows. So we CANNOT extract
+          # them in place with ZipFile.ExtractToDirectory (Access denied).
+          # Instead: find the 3 zips, COPY them to a temp dir, then extract
+          # the copies into a new staging dir.
           $cpuZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cpu-x64.zip' | Select-Object -First 1
           $cudaZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cuda-13.3-x64-tma.zip' | Select-Object -First 1
           $cudartZip = Get-ChildItem -Path $dist -Recurse -Filter 'cudart-llama-bin-win-cuda-13.3-x64.zip' | Select-Object -First 1
           if (-not $cpuZip) { throw "CPU toolset artifact not found" }
           if (-not $cudaZip) { throw "TMA CUDA backend artifact not found" }
           if (-not $cudartZip) { throw "CUDA runtime artifact not found" }
-          # NEW empty staging dir
+          # Copy the 3 zips to a temp dir to avoid file-lock issues.
+          $src = Join-Path $env:RUNNER_TEMP 'tma-src'
           $stage = Join-Path $env:RUNNER_TEMP 'tma-merge'
-          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          foreach ($d in @($src, $stage)) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+          New-Item -ItemType Directory -Path $src -Force | Out-Null
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # Extract all three
+          Copy-Item $cpuZip.FullName  (Join-Path $src 'cpu.zip')  -Force
+          Copy-Item $cudaZip.FullName (Join-Path $src 'cuda.zip') -Force
+          Copy-Item $cudartZip.FullName (Join-Path $src 'cudart.zip') -Force
+          # Extract the COPIES (not the locked originals) into the staging dir.
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($cpuZip.FullName, $stage)
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($cudaZip.FullName, $stage)
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($cudartZip.FullName, $stage)
+          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cpu.zip'), $stage)
+          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cuda.zip'), $stage)
+          [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $src 'cudart.zip'), $stage)
           # Validate final staging for the required files.
           $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
           Write-Host "Merged staging contents ($($files.Count) files):"
