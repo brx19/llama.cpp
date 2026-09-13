@@ -272,9 +272,9 @@ jobs:
           # imports expected; any debug-CRT import fails the build here and
           # again in pe_validate.py).
           $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check.py'
-          '@
-          import struct, sys
-          def imports(path):
+            '@
+            import struct, sys
+            def imports(path):
               d = open(path,'rb').read()
               if d[:2] != b'MZ': raise SystemExit(f"FATAL: {path} is not a PE file")
               off = struct.unpack_from('<I', d, 0x3C)[0]
@@ -324,13 +324,13 @@ jobs:
                   end = d.index(b'\x00', no)
                   names.append(d[no:end].decode('utf-8','replace'))
               return names
-          for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
+            for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
               imps = imports(exe)
               print(f"== {exe} imports: {', '.join(imps)}")
               dbg = [i for i in imps if '140D' in i or i.lower().startswith(('msvcp140d','vcruntime140d','ucrtbased'))]
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
-          print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
+            print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
           '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
           python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
@@ -748,9 +748,9 @@ jobs:
           Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
           $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check_stock.py'
-          '@
-          import struct, sys
-          def imports(path):
+            '@
+            import struct, sys
+            def imports(path):
               d = open(path,'rb').read()
               if d[:2] != b'MZ': raise SystemExit(f"FATAL: {path} is not a PE file")
               off = struct.unpack_from('<I', d, 0x3C)[0]
@@ -799,13 +799,13 @@ jobs:
                   end = d.index(b'\x00', no)
                   names.append(d[no:end].decode('utf-8','replace'))
               return names
-          for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
+            for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
               imps = imports(exe)
               print(f"== {exe} imports: {', '.join(imps)}")
               dbg = [i for i in imps if '140D' in i or i.lower().startswith(('msvcp140d','vcruntime140d','ucrtbased'))]
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
-          print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
+            print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
           '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
           python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
@@ -1192,9 +1192,9 @@ jobs:
           Write-Host "Recursing ${binDir}:"
           Get-ChildItem $binDir -File | Sort-Object Name | Format-Table Name,Length
           $pyFile = Join-Path $env:RUNNER_TEMP 'pe_imports_check_cutlass.py'
-          '@
-          import struct, sys
-          def imports(path):
+            '@
+            import struct, sys
+            def imports(path):
               d = open(path,'rb').read()
               if d[:2] != b'MZ': raise SystemExit(f"FATAL: {path} is not a PE file")
               off = struct.unpack_from('<I', d, 0x3C)[0]
@@ -1243,13 +1243,13 @@ jobs:
                   end = d.index(b'\x00', no)
                   names.append(d[no:end].decode('utf-8','replace'))
               return names
-          for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
+            for exe in ('build/bin/Release/llama-server.exe','build/bin/Release/llama-bench.exe','build/bin/Release/ggml-cuda.dll'):
               imps = imports(exe)
               print(f"== {exe} imports: {', '.join(imps)}")
               dbg = [i for i in imps if '140D' in i or i.lower().startswith(('msvcp140d','vcruntime140d','ucrtbased'))]
               if dbg:
                   raise SystemExit(f"FATAL: {exe} imports DEBUG CRT: {dbg} - build is not Release")
-          print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
+            print("Release guard OK: no debug-CRT imports in llama-server.exe / llama-bench.exe / ggml-cuda.dll")
           '@ | Set-Content -Path $pyFile -Encoding utf8NoBOM
           python $pyFile
           if ($LASTEXITCODE -ne 0) { throw "Release guard FAILED (debug CRT imports or missing artifacts)" }
