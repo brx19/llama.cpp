@@ -1,4 +1,4 @@
-name: Diagnostic cp.async Blackwell backend
+name: Diagnostic cp.async Blackwell coherent package
 
 on:
   push:
@@ -13,28 +13,94 @@ permissions:
 env:
   CUDA_VERSION: "13.3"
   CUDA_PKG: x64
-  SOURCE_BRANCH: blackwell/cpasync
   SOURCE_SHA: 30875287102b9dfc9dff77c1a114a450e585415b
+  SHORT_SHA: 3087528710
 
 jobs:
-  build-cpasync-cuda:
-    name: cp.async-only ggml-cuda (sm120a)
+  build-cpu:
+    name: cp.async CPU toolset
     runs-on: windows-2022
     steps:
-      - name: Checkout cp.async-only source
+      - name: Checkout exact cp.async source
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.SOURCE_BRANCH }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
 
-      - name: Verify exact source commit
+      - name: Verify source SHA
         shell: pwsh
         run: |
           $actual = (git rev-parse HEAD).Trim()
-          Write-Host "actual=$actual expected=$env:SOURCE_SHA"
-          if ($actual -ne $env:SOURCE_SHA) {
-            throw "blackwell/cpasync moved: expected $env:SOURCE_SHA, got $actual"
-          }
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+          Write-Host "CPU source=$actual"
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+
+      - name: Build full Release toolset (CUDA OFF)
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b 1
+          where cl
+          if errorlevel 1 exit /b 1
+          if exist build-cpu rmdir /s /q build-cpu
+          cmake -S . -B build-cpu -G "Ninja Multi-Config" ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_TOOLS=ON ^
+            -DLLAMA_BUILD_TESTS=OFF ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=ON ^
+            -DGGML_OPENMP=ON ^
+            -DGGML_RPC=ON ^
+            -DGGML_CUDA=OFF
+          if errorlevel 1 exit /b 1
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build-cpu --config Release -j %NINJA_JOBS%
+          if errorlevel 1 exit /b 1
+          if not exist build-cpu\bin\Release\llama-bench.exe exit /b 1
+          if not exist build-cpu\bin\Release\llama-server.exe exit /b 1
+          if not exist build-cpu\bin\Release\llama-server-impl.dll exit /b 1
+          if not exist build-cpu\bin\Release\ggml-base.dll exit /b 1
+
+      - name: Write CPU provenance
+        shell: pwsh
+        run: |
+          @(
+            'variant=cpasync-only',
+            "source_sha=$env:SOURCE_SHA",
+            'component=cpu-toolset',
+            'configuration=Release',
+            'cuda=off',
+            'ggml_backend_dl=on'
+          ) | Set-Content 'build-cpu/bin/Release/BUILD-CPASYNC-CPU.txt' -Encoding utf8
+
+      - name: Upload CPU toolset
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpasync-cpu-${{ env.SHORT_SHA }}
+          path: build-cpu/bin/Release/*
+          retention-days: 14
+
+  build-cuda:
+    name: cp.async ggml-cuda sm120a
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact cp.async source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+          Write-Host "CUDA source=$actual"
 
       - name: Install CUDA Toolkit 13.3
         uses: ./.github/actions/windows-setup-cuda
@@ -46,7 +112,7 @@ jobs:
         shell: pwsh
         run: choco install ninja -y
 
-      - name: Build Release ggml-cuda.dll only
+      - name: Build Release ggml-cuda.dll (120a-real)
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
@@ -55,10 +121,8 @@ jobs:
           if errorlevel 1 exit /b 1
           where nvcc
           if errorlevel 1 exit /b 1
-
-          if exist build-cpasync rmdir /s /q build-cpasync
-
-          cmake -S . -B build-cpasync -G "Ninja Multi-Config" ^
+          if exist build-cuda rmdir /s /q build-cuda
+          cmake -S . -B build-cuda -G "Ninja Multi-Config" ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
@@ -66,33 +130,144 @@ jobs:
             -DLLAMA_BUILD_BORINGSSL=ON ^
             -DCMAKE_CUDA_ARCHITECTURES=120a-real
           if errorlevel 1 exit /b 1
-
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build-cpasync --config Release -j %NINJA_JOBS% --target ggml-cuda
+          cmake --build build-cuda --config Release -j %NINJA_JOBS% --target ggml-cuda
           if errorlevel 1 exit /b 1
+          if not exist build-cuda\bin\Release\ggml-cuda.dll exit /b 1
 
-          if not exist build-cpasync\bin\Release\ggml-cuda.dll exit /b 1
-
-      - name: Record provenance
+      - name: Write CUDA provenance and hash
         shell: pwsh
         run: |
-          $out = 'build-cpasync/bin/Release/BUILD-CPASYNC.txt'
           @(
             'variant=cpasync-only',
             "source_sha=$env:SOURCE_SHA",
-            'tma_commit_excluded=00cef0cb0b82dc018b65843b534637588b8a8179',
+            'component=ggml-cuda',
             'cuda=13.3',
             'cmake_cuda_architectures=120a-real',
             'configuration=Release',
-            'purpose=diagnostic A/B against TMA crash at pp512'
-          ) | Set-Content $out -Encoding utf8
-          Get-FileHash 'build-cpasync/bin/Release/ggml-cuda.dll' -Algorithm SHA256 | Format-List
+            'tma_commit_excluded=00cef0cb0b82dc018b65843b534637588b8a8179'
+          ) | Set-Content 'build-cuda/bin/Release/BUILD-CPASYNC-CUDA.txt' -Encoding utf8
+          Get-FileHash 'build-cuda/bin/Release/ggml-cuda.dll' -Algorithm SHA256 | Format-List
 
-      - name: Upload cp.async-only backend
+      - name: Upload CUDA backend
         uses: actions/upload-artifact@v4
         with:
-          name: ggml-cuda-cpasync-308752871-sm120a
+          name: cpasync-cuda-${{ env.SHORT_SHA }}
           path: |
-            build-cpasync/bin/Release/ggml-cuda.dll
-            build-cpasync/bin/Release/BUILD-CPASYNC.txt
+            build-cuda/bin/Release/ggml-cuda.dll
+            build-cuda/bin/Release/BUILD-CPASYNC-CUDA.txt
+          retention-days: 14
+
+  cuda-runtime:
+    name: CUDA 13.3 runtime
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact source for local CUDA setup action
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Install CUDA Toolkit 13.3
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ env.CUDA_VERSION }}
+          cuda_arch: ${{ env.CUDA_PKG }}
+
+      - name: Stage CUDA runtime DLLs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path cuda-runtime | Out-Null
+          $patterns = @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')
+          $roots = @("$env:CUDA_PATH\bin", "$env:CUDA_PATH\lib", "$env:CUDA_PATH\bin\x64") | Where-Object { Test-Path $_ }
+          foreach ($root in $roots) {
+            foreach ($pattern in $patterns) {
+              Get-ChildItem -Path $root -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Copy-Item $_.FullName -Destination 'cuda-runtime' -Force
+              }
+            }
+          }
+          $files = Get-ChildItem cuda-runtime -File
+          $files | Format-Table Name,Length
+          foreach ($required in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
+            if (-not (Get-ChildItem cuda-runtime -Filter $required -File -ErrorAction SilentlyContinue)) {
+              throw "Missing CUDA runtime component: $required"
+            }
+          }
+
+      - name: Upload CUDA runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpasync-cudart-13.3-x64
+          path: cuda-runtime/*
+          retention-days: 14
+
+  merge-package:
+    name: merge coherent cp.async package
+    runs-on: windows-2022
+    needs: [build-cpu, build-cuda, cuda-runtime]
+    steps:
+      - name: Download CPU toolset
+        uses: actions/download-artifact@v4
+        with:
+          name: cpasync-cpu-${{ env.SHORT_SHA }}
+          path: package
+
+      - name: Download CUDA backend
+        uses: actions/download-artifact@v4
+        with:
+          name: cpasync-cuda-${{ env.SHORT_SHA }}
+          path: package
+
+      - name: Download CUDA runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: cpasync-cudart-13.3-x64
+          path: package
+
+      - name: Validate coherent package
+        shell: pwsh
+        run: |
+          $required = @(
+            'llama-bench.exe',
+            'llama-server.exe',
+            'llama-server-impl.dll',
+            'llama.dll',
+            'llama-common.dll',
+            'ggml.dll',
+            'ggml-base.dll',
+            'ggml-cuda.dll',
+            'BUILD-CPASYNC-CPU.txt',
+            'BUILD-CPASYNC-CUDA.txt'
+          )
+          foreach ($f in $required) {
+            if (-not (Test-Path "package/$f")) { throw "Missing required package file: $f" }
+          }
+          if (-not (Get-ChildItem package -Filter 'ggml-cpu*.dll' -File)) { throw 'No ggml-cpu backend DLLs found' }
+          foreach ($pattern in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
+            if (-not (Get-ChildItem package -Filter $pattern -File)) { throw "Missing runtime: $pattern" }
+          }
+          $cpuProv = Get-Content package/BUILD-CPASYNC-CPU.txt -Raw
+          $cudaProv = Get-Content package/BUILD-CPASYNC-CUDA.txt -Raw
+          if ($cpuProv -notmatch [regex]::Escape($env:SOURCE_SHA)) { throw 'CPU provenance SHA mismatch' }
+          if ($cudaProv -notmatch [regex]::Escape($env:SOURCE_SHA)) { throw 'CUDA provenance SHA mismatch' }
+          Get-FileHash package/ggml-cuda.dll -Algorithm SHA256 | Format-List
+          Get-ChildItem package | Sort-Object Name | Format-Table Name,Length
+
+      - name: Create final ZIP
+        shell: pwsh
+        run: |
+          $zip = "llama-win-cuda13.3-sm120a-cpasync-$env:SHORT_SHA.zip"
+          Push-Location package
+          7z a -snl "../$zip" .\*
+          if ($LASTEXITCODE -ne 0) { throw 'Final 7z packaging failed' }
+          Pop-Location
+          Get-FileHash $zip -Algorithm SHA256 | Format-List
+          Get-Item $zip | Format-List Name,Length
+
+      - name: Upload coherent cp.async package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-win-cuda13.3-sm120a-cpasync-${{ env.SHORT_SHA }}
+          path: llama-win-cuda13.3-sm120a-cpasync-${{ env.SHORT_SHA }}.zip
           retention-days: 14
