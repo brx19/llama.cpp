@@ -375,7 +375,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FORK }}
-          ref: ${{ env.TMA_BRANCH }}
+          ref: master
           fetch-depth: 1
 
       - name: "Download artifacts"
