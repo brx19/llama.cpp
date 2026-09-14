@@ -1,0 +1,199 @@
+name: Diagnostic stock Blackwell coherent package
+
+on:
+  push:
+    branches:
+      - ci/cpasync-diagnostic
+    paths:
+      - .github/workflows/build-stock-blackwell-diagnostic.yml
+
+permissions:
+  contents: read
+
+env:
+  CUDA_VERSION: "13.3"
+  CUDA_PKG: x64
+  SOURCE_SHA: 16378d93f94012d4228c8c7683adce3f286aee5d
+  SHORT_SHA: 16378d93f9
+
+jobs:
+  build-stock-cpu:
+    name: stock CPU toolset
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact stock source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+      - name: Verify source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+      - name: Build full Release toolset (CUDA OFF)
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b 1
+          if exist build-stock rmdir /s /q build-stock
+          cmake -S . -B build-stock -G "Ninja Multi-Config" ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_TOOLS=ON ^
+            -DLLAMA_BUILD_TESTS=OFF ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=ON ^
+            -DGGML_OPENMP=ON ^
+            -DGGML_RPC=ON ^
+            -DGGML_CUDA=OFF
+          if errorlevel 1 exit /b 1
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build-stock --config Release -j %NINJA_JOBS%
+          if errorlevel 1 exit /b 1
+          if not exist build-stock\bin\Release\llama-bench.exe exit /b 1
+          if not exist build-stock\bin\Release\llama-server.exe exit /b 1
+      - name: Write CPU provenance
+        shell: pwsh
+        run: |
+          @(
+            'variant=stock-parent',
+            "source_sha=$env:SOURCE_SHA",
+            'cpasync_commit_excluded=30875287102b9dfc9dff77c1a114a450e585415b',
+            'tma_commit_excluded=00cef0cb0b82dc018b65843b534637588b8a8179',
+            'configuration=Release'
+          ) | Set-Content 'build-stock/bin/Release/BUILD-STOCK.txt' -Encoding utf8
+      - name: Upload CPU toolset
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-cpu-${{ env.SHORT_SHA }}
+          path: build-stock/bin/Release/*
+          retention-days: 14
+
+  build-stock-cuda:
+    name: stock ggml-cuda sm120a
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact stock source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+      - name: Verify source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+      - name: Install CUDA Toolkit 13.3
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ env.CUDA_VERSION }}
+          cuda_arch: ${{ env.CUDA_PKG }}
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+      - name: Build Release ggml-cuda.dll (120a-real)
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b 1
+          if exist build-stock-cuda rmdir /s /q build-stock-cuda
+          cmake -S . -B build-stock-cuda -G "Ninja Multi-Config" ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_CPU=OFF ^
+            -DGGML_CUDA=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DCMAKE_CUDA_ARCHITECTURES=120a-real
+          if errorlevel 1 exit /b 1
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build-stock-cuda --config Release -j %NINJA_JOBS% --target ggml-cuda
+          if errorlevel 1 exit /b 1
+          if not exist build-stock-cuda\bin\Release\ggml-cuda.dll exit /b 1
+      - name: Upload stock CUDA backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-cuda-${{ env.SHORT_SHA }}
+          path: build-stock-cuda/bin/Release/ggml-cuda.dll
+          retention-days: 14
+
+  cuda-runtime:
+    name: CUDA 13.3 runtime
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact source for local CUDA setup action
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+      - name: Install CUDA Toolkit 13.3
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ env.CUDA_VERSION }}
+          cuda_arch: ${{ env.CUDA_PKG }}
+      - name: Stage CUDA runtime DLLs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path runtime | Out-Null
+          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cudart64_*.dll' | Copy-Item -Destination runtime
+          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cublas64_*.dll' | Copy-Item -Destination runtime
+          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cublasLt64_*.dll' | Copy-Item -Destination runtime
+          if (-not (Get-ChildItem runtime -Filter 'cudart64_*.dll')) { throw 'cudart missing' }
+          if (-not (Get-ChildItem runtime -Filter 'cublas64_*.dll')) { throw 'cublas missing' }
+          if (-not (Get-ChildItem runtime -Filter 'cublasLt64_*.dll')) { throw 'cublasLt missing' }
+      - name: Upload CUDA runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-cudart-13.3-x64
+          path: runtime/*
+          retention-days: 14
+
+  merge-stock-package:
+    name: merge coherent stock package
+    runs-on: windows-2022
+    needs: [build-stock-cpu, build-stock-cuda, cuda-runtime]
+    steps:
+      - name: Download CPU toolset
+        uses: actions/download-artifact@v4
+        with:
+          name: stock-cpu-${{ env.SHORT_SHA }}
+          path: stage
+      - name: Download CUDA backend
+        uses: actions/download-artifact@v4
+        with:
+          name: stock-cuda-${{ env.SHORT_SHA }}
+          path: stage
+      - name: Download CUDA runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: stock-cudart-13.3-x64
+          path: stage
+      - name: Validate coherent stage and package
+        shell: pwsh
+        run: |
+          $required = @('llama-bench.exe','llama-server.exe','llama-server-impl.dll','ggml.dll','ggml-base.dll','ggml-cuda.dll')
+          foreach ($f in $required) { if (-not (Test-Path "stage/$f")) { throw "Missing $f" } }
+          if (-not (Get-ChildItem stage -Filter 'ggml-cpu-*.dll')) { throw 'CPU backend missing' }
+          if (-not (Get-ChildItem stage -Filter 'cudart64_*.dll')) { throw 'cudart missing' }
+          if (-not (Get-ChildItem stage -Filter 'cublas64_*.dll')) { throw 'cublas missing' }
+          if (-not (Get-ChildItem stage -Filter 'cublasLt64_*.dll')) { throw 'cublasLt missing' }
+          @(
+            'variant=stock-parent',
+            "source_sha=$env:SOURCE_SHA",
+            'comparison_cpasync_sha=30875287102b9dfc9dff77c1a114a450e585415b',
+            'comparison_tma_sha=00cef0cb0b82dc018b65843b534637588b8a8179',
+            'cuda=13.3',
+            'arch=120a-real',
+            'configuration=Release'
+          ) | Set-Content 'stage/BUILD-STOCK-PACKAGE.txt' -Encoding utf8
+          Compress-Archive -Path stage/* -DestinationPath "llama-win-cuda13.3-sm120a-stock-$env:SHORT_SHA.zip" -CompressionLevel Optimal
+      - name: Upload coherent stock package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-win-cuda13.3-sm120a-stock-${{ env.SHORT_SHA }}
+          path: llama-win-cuda13.3-sm120a-stock-${{ env.SHORT_SHA }}.zip
+          retention-days: 14
