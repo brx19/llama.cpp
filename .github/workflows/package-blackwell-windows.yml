@@ -194,6 +194,9 @@ jobs:
           $shortTma = $env:SOURCE_TMA_SHA.Substring(0, 10).ToLowerInvariant()
           $zipName = "llama-win-cuda${env:CUDA_VERSION}-sm120a-tma-${shortTma}.zip"
 
+          # Canonical fields below match pe_validate.py.  The package-only run
+          # does not compile anything, so unavailable exact source-toolchain
+          # patch versions are recorded truthfully instead of being invented.
           $metadata = [ordered]@{
             variant                    = 'tma'
             packaging_mode             = 'reuse-existing-actions-artifacts'
@@ -201,21 +204,41 @@ jobs:
             source_actions_run_id       = $env:SOURCE_RUN_ID
             source_workflow             = $env:SOURCE_WORKFLOW
             source_workflow_head_sha    = $env:SOURCE_HEAD_SHA
+            source_sha                  = $env:SOURCE_TMA_SHA.ToLowerInvariant()
+            upstream_base_sha           = '16378d93f94012d4228c8c7683adce3f286aee5d'
             tma_sha                     = $env:SOURCE_TMA_SHA.ToLowerInvariant()
             tma_short_sha               = $shortTma
             original_pr_sha             = '10247a1a207746b92050c7cbb6855f45f8242c9f'
             pr                          = '#28572'
+            msvc_version                = 'VS2022 toolchain from windows-2022 source Actions run 34794445056 (exact toolset version was not persisted in source artifacts)'
+            cuda_version                = $env:CUDA_VERSION
+            cmake_version               = 'CMake from windows-2022 source Actions run 34794445056 (exact version was not persisted in source artifacts)'
+            ninja_version               = 'Ninja from windows-2022 source Actions run 34794445056 (exact version was not persisted in source artifacts)'
+            cuda_architecture           = '120a-real'
+            build_configuration         = 'Release'
             cuda                        = $env:CUDA_VERSION
             cmake_cuda_architectures    = '120a-real'
             configuration               = 'Release'
             target_gpu                  = 'NVIDIA GeForce RTX 5090 (Blackwell, SM120)'
             binary_provenance           = 'reused unchanged from source_actions_run_id artifacts; this workflow performs no compilation'
-            source_toolchain_provenance = 'see source Actions run logs; package-only workflow intentionally does not invent unavailable MSVC/CMake/Ninja versions'
-            github_packaging_run_id      = $env:GITHUB_RUN_ID
+            source_toolchain_provenance = 'source Actions run 34794445056; exact MSVC/CMake/Ninja patch versions were not persisted in the reusable artifacts'
+            github_packaging_run_id     = $env:GITHUB_RUN_ID
             github_runner_image         = $env:RUNNER_IMAGE
             gpu_validation              = 'REQUIRES LOCAL RTX 5090 VALIDATION - GPU runtime NOT verified on the CI runner'
           }
           $metadata | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $stage 'BUILD-METADATA.json') -Encoding utf8
+
+          # pe_validate.py requires SHA256SUMS.txt to exist.  Generate a
+          # preliminary manifest before validation; exclude the manifest itself
+          # so there is no self-hash recursion.
+          Push-Location $stage
+          $lines = @()
+          foreach ($f in (Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name)) {
+            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += ("{0}  {1}" -f $h, $f.Name)
+          }
+          $lines | Set-Content 'SHA256SUMS.txt' -Encoding utf8
+          Pop-Location
 
           $report = Join-Path $env:RUNNER_TEMP 'PE-VALIDATE-REPORT.json'
           $env:PYTHONIOENCODING = 'utf8'
@@ -226,9 +249,11 @@ jobs:
           if ($rc -ne 0) { throw "PE dependency-closure validation FAILED" }
           Copy-Item $report (Join-Path $stage 'PE-VALIDATE-REPORT.json') -Force
 
+          # Regenerate the final manifest after adding the PE report so every
+          # final package payload file is covered (except the manifest itself).
           Push-Location $stage
           $lines = @()
-          foreach ($f in (Get-ChildItem -File | Where-Object { $_.Extension -in '.exe','.dll' } | Sort-Object Name)) {
+          foreach ($f in (Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name)) {
             $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
             $lines += ("{0}  {1}" -f $h, $f.Name)
           }
@@ -285,6 +310,9 @@ jobs:
           }
           if ($meta.tma_sha -ne $env:SOURCE_TMA_SHA.ToLowerInvariant()) {
             throw "metadata tma_sha mismatch"
+          }
+          if ($meta.build_configuration -ne 'Release') {
+            throw "metadata build_configuration mismatch"
           }
           Write-Host "ZIP validation OK; no compilation was performed in this workflow."
 
