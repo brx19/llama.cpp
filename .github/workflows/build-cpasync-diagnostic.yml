@@ -1,6 +1,7 @@
 name: Diagnostic cp.async Blackwell coherent package
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - ci/cpasync-diagnostic
@@ -179,17 +180,30 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path cuda-runtime | Out-Null
           $patterns = @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')
-          $roots = @("$env:CUDA_PATH\bin", "$env:CUDA_PATH\lib", "$env:CUDA_PATH\bin\x64") | Where-Object { Test-Path $_ }
-          foreach ($root in $roots) {
+          $matches = @(
             foreach ($pattern in $patterns) {
-              Get-ChildItem -Path $root -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
-                Copy-Item $_.FullName -Destination 'cuda-runtime' -Force
-              }
+              Get-ChildItem -Path $env:CUDA_PATH -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue
             }
+          )
+          if ($matches.Count -eq 0) {
+            throw "No CUDA runtime DLLs found recursively under $env:CUDA_PATH"
           }
-          $files = Get-ChildItem cuda-runtime -File
-          $files | Format-Table Name,Length
-          foreach ($required in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
+          Write-Host "CUDA runtime candidates:"
+          $matches | Sort-Object FullName | ForEach-Object { Write-Host "  $($_.FullName)" }
+          foreach ($group in ($matches | Group-Object Name)) {
+            $hashes = @(
+              $group.Group |
+                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash } |
+                Sort-Object -Unique
+            )
+            if ($hashes.Count -ne 1) {
+              throw "Conflicting copies found for $($group.Name): $($hashes -join ', ')"
+            }
+            $source = $group.Group | Sort-Object FullName | Select-Object -First 1
+            Copy-Item $source.FullName -Destination cuda-runtime -Force
+          }
+          Get-ChildItem cuda-runtime -File | Sort-Object Name | Format-Table Name,Length
+          foreach ($required in $patterns) {
             if (-not (Get-ChildItem cuda-runtime -Filter $required -File -ErrorAction SilentlyContinue)) {
               throw "Missing CUDA runtime component: $required"
             }
