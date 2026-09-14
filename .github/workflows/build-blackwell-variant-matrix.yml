@@ -1,0 +1,119 @@
+name: Diagnostic Blackwell CUDA variant matrix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/cpasync-diagnostic
+    paths:
+      - .github/workflows/build-blackwell-variant-matrix.yml
+
+permissions:
+  contents: read
+
+env:
+  CUDA_VERSION: "13.3"
+  CUDA_PKG: x64
+
+jobs:
+  build-cuda-variants:
+    name: ${{ matrix.variant }} ggml-cuda sm120a
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: stock
+            source_sha: 16378d93f94012d4228c8c7683adce3f286aee5d
+            short_sha: 16378d93f9
+            cmake_extra: ""
+          - variant: cpasync
+            source_sha: 30875287102b9dfc9dff77c1a114a450e585415b
+            short_sha: 3087528710
+            cmake_extra: ""
+          - variant: tma
+            source_sha: 00cef0cb0b82dc018b65843b534637588b8a8179
+            short_sha: 00cef0cb0b
+            cmake_extra: ""
+          - variant: cutlass
+            source_sha: 63a6c0d35a8c5fa0058511a029e76ef433f228b0
+            short_sha: 63a6c0d35a
+            cmake_extra: -DGGML_CUDA_CUTLASS=ON
+
+    steps:
+      - name: Checkout exact variant source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source_sha }}
+          fetch-depth: 1
+
+      - name: Verify exact source
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne '${{ matrix.source_sha }}') {
+            throw "Expected ${{ matrix.source_sha }}, got $actual"
+          }
+          Write-Host "variant=${{ matrix.variant }}"
+          Write-Host "source=$actual"
+
+      - name: Install CUDA Toolkit 13.3
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: ${{ env.CUDA_VERSION }}
+          cuda_arch: ${{ env.CUDA_PKG }}
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+
+      - name: Build Release ggml-cuda.dll for SM120a
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b 1
+          where cl
+          if errorlevel 1 exit /b 1
+          where nvcc
+          if errorlevel 1 exit /b 1
+          if exist build-diagnostic rmdir /s /q build-diagnostic
+          cmake -S . -B build-diagnostic -G "Ninja Multi-Config" ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_CPU=OFF ^
+            -DGGML_CUDA=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DCMAKE_CUDA_ARCHITECTURES=120a-real ${{ matrix.cmake_extra }}
+          if errorlevel 1 exit /b 1
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build-diagnostic --config Release -j %NINJA_JOBS% --target ggml-cuda
+          if errorlevel 1 exit /b 1
+          if not exist build-diagnostic\bin\Release\ggml-cuda.dll exit /b 1
+
+      - name: Record provenance and hashes
+        shell: pwsh
+        run: |
+          $metadata = [ordered]@{
+            variant                  = '${{ matrix.variant }}'
+            source_sha               = '${{ matrix.source_sha }}'
+            cuda                     = $env:CUDA_VERSION
+            cmake_cuda_architectures = '120a-real'
+            cmake_extra              = '${{ matrix.cmake_extra }}'
+            configuration            = 'Release'
+            target                   = 'ggml-cuda'
+            github_actions_run_id    = $env:GITHUB_RUN_ID
+          }
+          $metadata |
+            ConvertTo-Json -Depth 3 |
+            Set-Content build-diagnostic/bin/Release/BUILD-DIAGNOSTIC.json -Encoding utf8
+          Get-FileHash build-diagnostic/bin/Release/ggml-cuda.dll -Algorithm SHA256 |
+            Format-List
+
+      - name: Upload diagnostic CUDA backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-${{ matrix.variant }}-cuda-${{ matrix.short_sha }}
+          path: |
+            build-diagnostic/bin/Release/ggml-cuda.dll
+            build-diagnostic/bin/Release/BUILD-DIAGNOSTIC.json
+          retention-days: 14
