@@ -1,6 +1,7 @@
 name: Diagnostic stock Blackwell coherent package
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - ci/cpasync-diagnostic
@@ -139,12 +140,35 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path runtime | Out-Null
-          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cudart64_*.dll' | Copy-Item -Destination runtime
-          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cublas64_*.dll' | Copy-Item -Destination runtime
-          Get-ChildItem "$env:CUDA_PATH\bin" -Filter 'cublasLt64_*.dll' | Copy-Item -Destination runtime
-          if (-not (Get-ChildItem runtime -Filter 'cudart64_*.dll')) { throw 'cudart missing' }
-          if (-not (Get-ChildItem runtime -Filter 'cublas64_*.dll')) { throw 'cublas missing' }
-          if (-not (Get-ChildItem runtime -Filter 'cublasLt64_*.dll')) { throw 'cublasLt missing' }
+          $patterns = @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')
+          $matches = @(
+            foreach ($pattern in $patterns) {
+              Get-ChildItem -Path $env:CUDA_PATH -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue
+            }
+          )
+          if ($matches.Count -eq 0) {
+            throw "No CUDA runtime DLLs found recursively under $env:CUDA_PATH"
+          }
+          Write-Host "CUDA runtime candidates:"
+          $matches | Sort-Object FullName | ForEach-Object { Write-Host "  $($_.FullName)" }
+          foreach ($group in ($matches | Group-Object Name)) {
+            $hashes = @(
+              $group.Group |
+                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash } |
+                Sort-Object -Unique
+            )
+            if ($hashes.Count -ne 1) {
+              throw "Conflicting copies found for $($group.Name): $($hashes -join ', ')"
+            }
+            $source = $group.Group | Sort-Object FullName | Select-Object -First 1
+            Copy-Item $source.FullName -Destination runtime -Force
+          }
+          Get-ChildItem runtime -File | Sort-Object Name | Format-Table Name,Length
+          foreach ($required in $patterns) {
+            if (-not (Get-ChildItem runtime -Filter $required -File -ErrorAction SilentlyContinue)) {
+              throw "Missing CUDA runtime component: $required"
+            }
+          }
       - name: Upload CUDA runtime
         uses: actions/upload-artifact@v4
         with:
