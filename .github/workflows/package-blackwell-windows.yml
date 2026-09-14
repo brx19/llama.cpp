@@ -1,7 +1,12 @@
 name: Package Blackwell TMA (existing artifacts)
-run-name: Package TMA from run ${{ inputs.source_run_id }}
+run-name: Package TMA from run ${{ inputs.source_run_id || '34794445056' }}
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/package-blackwell-windows.yml'
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -25,8 +30,8 @@ permissions:
 
 env:
   CUDA_VERSION: "13.3"
-  SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-  SOURCE_TMA_SHA: ${{ inputs.source_tma_sha }}
+  SOURCE_RUN_ID: ${{ inputs.source_run_id || '34794445056' }}
+  SOURCE_TMA_SHA: ${{ inputs.source_tma_sha || '00cef0cb0b82dc018b65843b534637588b8a8179' }}
 
 jobs:
   package-existing-artifacts:
@@ -86,7 +91,7 @@ jobs:
           name: llama-bin-win-cpu-x64.zip
           path: dist/cpu
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.source_run_id }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
 
       - name: Download TMA CUDA backend artifact
         uses: actions/download-artifact@v4
@@ -94,7 +99,7 @@ jobs:
           name: llama-bin-win-cuda-13.3-x64-tma.zip
           path: dist/tma
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.source_run_id }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
 
       - name: Download CUDA runtime artifact
         uses: actions/download-artifact@v4
@@ -102,7 +107,7 @@ jobs:
           name: cudart-llama-bin-win-cuda-13.3-x64.zip
           path: dist/cudart
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.source_run_id }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
 
       - name: Merge into one self-contained package
         id: merge
@@ -120,7 +125,6 @@ jobs:
           Write-Host "  TMA:    $($cudaZip.FullName)"
           Write-Host "  CUDART: $($cudartZip.FullName)"
 
-          # Keep the same Windows lock workaround as the full build workflow.
           Start-Sleep -Seconds 5
           $src = Join-Path $env:RUNNER_TEMP 'tma-package-src'
           if (Test-Path $src) { Remove-Item $src -Recurse -Force }
