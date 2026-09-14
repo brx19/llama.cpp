@@ -371,6 +371,13 @@ jobs:
     runs-on: windows-2022
     name: merge tma package
     steps:
+      - name: "Checkout (for scripts/extract_tma_packages.py)"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.TMA_BRANCH }}
+          fetch-depth: 1
+
       - name: "Download artifacts"
         uses: actions/download-artifact@v4
         with:
