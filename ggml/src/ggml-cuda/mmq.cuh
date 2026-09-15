@@ -1626,8 +1626,12 @@ struct mmq_args {
 static size_t mmq_get_nbytes_shared(const ggml_cuda_mmq_config & config, const int cc) {
     const size_t nbs_ids = config.J*sizeof(int);
     if (blackwell_mma_available(cc) && config.type == GGML_TYPE_NVFP4) {
-        // stage buffers aligned to 128 bytes for the tensor copies, then the barriers
-        return nbs_ids + 128 + MMQ_FP4_PIPE_STAGES*(config.I*MMQ_FP4_PIPE_XS + config.J*MMQ_TILE_Y_K)*sizeof(int) + MMQ_FP4_PIPE_NBAR*sizeof(uint64_t);
+        // Both stage buffers must be 128 byte aligned (tensor copies). The stages start 128 byte aligned,
+        // so the stride between them (X_STAGE + Y_STAGE ints) must also be 128 byte aligned, otherwise the
+        // second stage is misaligned and the tensor copies fault. Pad the shared memory accordingly.
+        const size_t nbs_stage = (size_t) (config.I*MMQ_FP4_PIPE_XS + config.J*MMQ_TILE_Y_K)*sizeof(int);
+        const size_t nbs_stages = GGML_PAD(MMQ_FP4_PIPE_STAGES*nbs_stage, (size_t) 128);
+        return nbs_ids + 128 + nbs_stages + MMQ_FP4_PIPE_NBAR*sizeof(uint64_t);
     }
     const size_t nbs_x = ggml_cuda_mmq_get_nbytes_shared_x(config, cc);
     const size_t nbs_y = config.J * (sizeof(block_q8_1_mmq));
