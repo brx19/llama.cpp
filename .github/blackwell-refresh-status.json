@@ -1,7 +1,7 @@
 {
   "upstream": "41abbfd599fbdd3470fcae0a1fb6530ad8403cd7",
-  "run_id": "34966067384",
-  "run_url": "https://github.com/brx19/llama.cpp/actions/runs/34966067384",
+  "run_id": "34972067596",
+  "run_url": "https://github.com/brx19/llama.cpp/actions/runs/34972067596",
   "variants": [
     {
       "variant": "stock",
@@ -17,8 +17,8 @@
     },
     {
       "variant": "tma",
-      "source_sha": "c7461133330cb514e094bc2fa48081f04b3199de",
-      "short_sha": "c746113333",
+      "source_sha": "de2a5717de1f94825eb08f90b455df77b2d37310",
+      "short_sha": "de2a5717de",
       "cmake_extra": ""
     },
     {
