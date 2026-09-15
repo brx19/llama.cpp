@@ -414,12 +414,17 @@ bool ggml_cuda_cutlass_mul_mat(
     const int64_t n = src0->ne[1];
     const int64_t m = ggml_nelements(src1) / k;
     const int64_t k_padded = weight.k;
+    // The activation scale buffer is indexed by row (up to the padded row count, see the row % 128
+    // swizzle in the quantize kernel) and consumed by the GEMM over m_padded rows, so it must be
+    // sized for the padded row count, not the unpadded one (which is a device buffer overrun and
+    // surfaces as 'run_dense_gemm: run failed: Error Internal').
+    const int64_t m_padded = GGML_PAD(m, 128);
     cudaStream_t stream = ctx.stream();
 
     ggml_cuda_pool_alloc<uint8_t> activation(ctx.pool());
     ggml_cuda_pool_alloc<uint8_t> activation_scales(ctx.pool());
     uint8_t * activation_data = activation.alloc(cutlass_activation_size(src0->type, m, k_padded));
-    uint8_t * scale_data = activation_scales.alloc(cutlass_scale_size(src0->type, m, k_padded));
+    uint8_t * scale_data = activation_scales.alloc(cutlass_scale_size(src0->type, m_padded, k_padded));
     if (!cutlass_quantize(
             (const float *) src1->data,
             activation_data,
