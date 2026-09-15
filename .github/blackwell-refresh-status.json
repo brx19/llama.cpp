@@ -1,7 +1,7 @@
 {
   "upstream": "41abbfd599fbdd3470fcae0a1fb6530ad8403cd7",
-  "run_id": "34872781404",
-  "run_url": "https://github.com/brx19/llama.cpp/actions/runs/34872781404",
+  "run_id": "34966067384",
+  "run_url": "https://github.com/brx19/llama.cpp/actions/runs/34966067384",
   "variants": [
     {
       "variant": "stock",
@@ -17,14 +17,14 @@
     },
     {
       "variant": "tma",
-      "source_sha": "523135acfe84be50fd2b3524a52fdba7a1f976ba",
-      "short_sha": "523135acfe",
+      "source_sha": "c7461133330cb514e094bc2fa48081f04b3199de",
+      "short_sha": "c746113333",
       "cmake_extra": ""
     },
     {
       "variant": "cutlass",
-      "source_sha": "245e4ed48d20dd40a0b579b950f4dd502a8c0d9e",
-      "short_sha": "245e4ed48d",
+      "source_sha": "5247e702a5f2760762e60a5fe398c2ca96f40ebf",
+      "short_sha": "5247e702a5",
       "cmake_extra": "-DGGML_CUDA_CUTLASS=ON"
     }
   ]
