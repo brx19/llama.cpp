@@ -788,12 +788,13 @@ static bool ggml_backend_buffer_is_cuda(ggml_backend_buffer_t buffer) {
 }
 
 #ifdef GGML_CUDA_CUTLASS
-static const char * ggml_backend_cuda_repacked_buffer_type_get_name(ggml_backend_buffer_type_t buft);
+static ggml_backend_buffer_t ggml_backend_cuda_repacked_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size);
 #endif
 
 bool ggml_backend_buft_is_cuda_repacked(ggml_backend_buffer_type_t buft) {
 #ifdef GGML_CUDA_CUTLASS
-    return buft != nullptr && buft->iface.get_name == ggml_backend_cuda_repacked_buffer_type_get_name;
+    // Name getters can be merged by identical code folding in Release builds.
+    return buft != nullptr && buft->iface.alloc_buffer == ggml_backend_cuda_repacked_buffer_type_alloc_buffer;
 #else
     GGML_UNUSED(buft);
     return false;
