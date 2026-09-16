@@ -1,4 +1,4 @@
-name: CUTLASS Windows buffer fix package
+name: Blackwell Windows TMA alignment fix packages
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
         run: |
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write('matrix={"include":[{"variant":"cutlass","source_sha":"85024990d44ee20605a1fdf088bb60f3f66023e7","short_sha":"85024990d4","cmake_extra":"-DGGML_CUDA_CUTLASS=ON"}]}\n')
+              f.write('matrix={"include":[{"variant":"cutlass","source_sha":"21383ef956705416033f5f91b0920f285949468f","short_sha":"21383ef956","cmake_extra":"-DGGML_CUDA_CUTLASS=ON"},{"variant":"tma","source_sha":"b0484e236036e010c8997e91287eb8cfd902f2b8","short_sha":"b0484e2360","cmake_extra":""}]}\n')
 
   build-cpu:
     needs: [prepare]
@@ -151,6 +151,7 @@ jobs:
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DCMAKE_CUDA_FLAGS=-lineinfo ^
             -DCMAKE_CUDA_ARCHITECTURES=120a-real ${{ matrix.cmake_extra }}
           if errorlevel 1 exit /b 1
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
