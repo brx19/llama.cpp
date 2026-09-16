@@ -130,6 +130,10 @@ if (CUDAToolkit_FOUND)
         )
         FetchContent_MakeAvailable(CUTLASS)
 
+        if(MSVC)
+            include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/cutlass-msvc-alignment.cmake)
+        endif()
+
         if (COMMAND license_add_file)
             license_add_file("CUTLASS" "${cutlass_SOURCE_DIR}/LICENSE.txt")
         endif()
