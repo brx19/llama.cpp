@@ -9,7 +9,8 @@
 // TMA tensor map for the NVFP4 weight tile (see mul_mat_q_process_tile_fp4_bulk), an opaque 128 byte descriptor
 #if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 #include <cuda.h>
-typedef CUtensorMap ggml_cuda_tmap;
+// Use a stable kernel parameter ABI; CUDA 13.x CUtensorMap alignment differs with MSVC.
+struct alignas(64) ggml_cuda_tmap { char opaque[128]; };
 #define GGML_CUDA_GRID_CONSTANT __grid_constant__
 #else
 struct alignas(64) ggml_cuda_tmap { char opaque[128]; };
@@ -1016,7 +1017,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile_fp4_bulk(
     constexpr uint32_t X_BYTES = X_STAGE*sizeof(int);
     constexpr uint32_t Y_BYTES = Y_STAGE*sizeof(int);
     static_assert(XS == MMQ_FP4_PIPE_XS && XS*sizeof(int) == MMQ_FP4_TMA_BOX_BYTES, "the stage row is one tensor map box row");
-    static_assert(X_BYTES % 128 == 0 && Y_BYTES % 16 == 0, "copy destinations must stay aligned");
+    static_assert(X_BYTES % 128 == 0 && Y_BYTES % 128 == 0, "both tensor copy stages must stay 128 byte aligned");
     constexpr ggml_cuda_mmq_write_back_t write_back = ggml_cuda_mmq_get_write_back<type, J, fallback>();
 
     extern __shared__ int data_mul_mat_q[];
@@ -1626,12 +1627,9 @@ struct mmq_args {
 static size_t mmq_get_nbytes_shared(const ggml_cuda_mmq_config & config, const int cc) {
     const size_t nbs_ids = config.J*sizeof(int);
     if (blackwell_mma_available(cc) && config.type == GGML_TYPE_NVFP4) {
-        // Both stage buffers must be 128 byte aligned (tensor copies). The stages start 128 byte aligned,
-        // so the stride between them (X_STAGE + Y_STAGE ints) must also be 128 byte aligned, otherwise the
-        // second stage is misaligned and the tensor copies fault. Pad the shared memory accordingly.
         const size_t nbs_stage = (size_t) (config.I*MMQ_FP4_PIPE_XS + config.J*MMQ_TILE_Y_K)*sizeof(int);
-        const size_t nbs_stages = GGML_PAD(MMQ_FP4_PIPE_STAGES*nbs_stage, (size_t) 128);
-        return nbs_ids + 128 + nbs_stages + MMQ_FP4_PIPE_NBAR*sizeof(uint64_t);
+        GGML_ASSERT(nbs_stage % 128 == 0);
+        return nbs_ids + 128 + MMQ_FP4_PIPE_STAGES*nbs_stage + MMQ_FP4_PIPE_NBAR*sizeof(uint64_t);
     }
     const size_t nbs_x = ggml_cuda_mmq_get_nbytes_shared_x(config, cc);
     const size_t nbs_y = config.J * (sizeof(block_q8_1_mmq));
