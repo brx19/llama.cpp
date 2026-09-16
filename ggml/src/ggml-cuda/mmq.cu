@@ -4,6 +4,7 @@
 #include "mmid.cuh"
 
 #include <cstdint>
+#include <cstring>
 
 static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
     switch (args.type_x) {
@@ -125,16 +126,18 @@ bool ggml_cuda_mmq_encode_tmap_nvfp4(const ggml_tensor * src0, const int cc, ggm
     }
     const cuuint64_t global_dim[2]     = { (cuuint64_t) row_bytes, (cuuint64_t) nrows };
     const cuuint64_t global_stride[1]  = { (cuuint64_t) row_bytes };
-    // TMA bounding-box inner dimension must be <= 128 bytes for CU_TENSOR_MAP_SWIZZLE_NONE.
-    // The stage row is 144 bytes (XS*4, one tensor map box row); a 128-byte box spans it with 16
-    // zero-filled pad bytes (the mma stage buffer is X_STAGE ints = I*36 ints, the extra 16 bytes are
-    // never read). Using 128 keeps the descriptor valid and 128-byte aligned.
-    const cuuint32_t box_dim[2]        = { 128, (cuuint32_t) ggml_cuda_mmq_get_I(GGML_TYPE_NVFP4, 8, false, cc) };
+    const cuuint32_t box_dim[2]        = { MMQ_FP4_TMA_BOX_BYTES, (cuuint32_t) ggml_cuda_mmq_get_I(GGML_TYPE_NVFP4, 8, false, cc) };
     const cuuint32_t element_stride[2] = { 1, 1 };
-    const CUresult res = encode(&tmap, CU_TENSOR_MAP_DATA_TYPE_UINT8, 2, src0->data, global_dim, global_stride, box_dim,
+    CUtensorMap encoded = {};
+    const CUresult res = encode(&encoded, CU_TENSOR_MAP_DATA_TYPE_UINT8, 2, src0->data, global_dim, global_stride, box_dim,
         element_stride, CU_TENSOR_MAP_INTERLEAVE_NONE, CU_TENSOR_MAP_SWIZZLE_NONE, CU_TENSOR_MAP_L2_PROMOTION_L2_128B,
         CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
-    return res == CUDA_SUCCESS;
+    if (res != CUDA_SUCCESS) {
+        return false;
+    }
+    static_assert(sizeof(encoded) == sizeof(tmap), "tensor map size mismatch");
+    std::memcpy(&tmap, &encoded, sizeof(tmap));
+    return true;
 #else
     GGML_UNUSED(src0);
     GGML_UNUSED(cc);
