@@ -1,131 +1,89 @@
-# Blackwell (RTX 5090 / SM120a) native Windows x64 CUDA build — TMA variant
-#
-# Architecture: mirrors the CURRENT official ggml-org/llama.cpp Windows
-# release pipeline (.github/workflows/release.yml, upstream 243a3082d):
-#
-#   Job A (build-windows-cpu)  -> full Windows llama.cpp toolset
-#      (llama-server.exe, llama-server-impl.dll, llama-bench.exe, llama.dll,
-#       llama-common.dll, ggml.dll, ggml-base.dll, ggml-cpu*.dll, ...)
-#      Built from the EXACT blackwell/tma source tree, CUDA OFF, BoringSSL
-#      ON. Packaged with upstream's exact command:
-#          7z a -snl llama-bin-win-cpu-x64.zip .\build\bin\Release\*
-#
-#   Job B (build-tma-cuda)     -> ONLY ggml-cuda.dll (the TMA/Blackwell
-#      backend, -DCMAKE_CUDA_ARCHITECTURES=120a-real), built with upstream's
-#      exact windows-cuda recipe (vcvarsall x64, Ninja Multi-Config,
-#      --config Release, --target ggml-cuda). Packaged:
-#          7z a -snl llama-bin-win-cuda-13.3-x64-tma.zip .\build\bin\Release\ggml-cuda.dll
-#
-#   Job C (cuda-runtime)       -> CUDA 13.3 runtime DLLs staged with
-#      upstream's EXACT robocopy commands from the installed toolkit.
-#
-#   Job D (merge-tma-package)  -> injects the CPU toolset ZIP + the TMA
-#      ggml-cuda.dll + the CUDA runtime DLLs into ONE self-contained
-#      llama-win-cuda13.3-sm120a-tma-<sha>.zip, exactly as upstream's
-#      release "Merge artifacts" step injects the windows-cpu ZIP into the
-#      CUDA ZIP.
-#
-# ABI-coherence note: Job A and Job B both build from the SAME source tree
-# (blackwell/tma head). The TMA delta (PR #28572) is confined to
-# ggml/src/ggml-cuda/* (verified: cp-async.cuh, mmq-vec-dot.cuh, mmq.cu,
-# mmq.cuh), so building the CPU toolset from that same tree yields the
-# official upstream-style Windows x64 toolset byte-for-byte in behavior,
-# while the TMA backend is exactly the replaced ggml-cuda.dll. The
-# "CPU runtime source SHA" is therefore blackwell/tma head — its tree is
-# upstream-base (16378d93f) + the 4 CUDA-backend files.
-#
-# GPU runtime validation is NOT performed on the runner (no RTX 5090).
-# All packages are marked REQUIRES LOCAL RTX 5090 VALIDATION.
-#
-# Scope: TMA only. Stock / CUTLASS are NOT built until this architecture
-# has produced one successful TMA ZIP. JIT-Gateway and the local llama.cpp
-# runtime are NOT touched.
-
-name: CI (Blackwell TMA, windows)
+name: Build RTX 5090 Windows packages
 
 on:
   workflow_dispatch:
     inputs:
-      publish_release:
-        description: "Publish the TMA package to a GitHub Release"
-        type: boolean
-        default: false
+      variant:
+        description: Variant to build
+        type: choice
+        options: [all, stock, cpasync, cutlass, tma]
+        default: all
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 env:
   CUDA_VERSION: "13.3"
   CUDA_PKG: x64
-  TMA_BRANCH: blackwell/tma
-  FORK: brx19/llama.cpp
-  TMA_PR_SHA: "10247a1a207746b92050c7cbb6855f45f8242c9f"
 
 jobs:
-  # ======================================================================
-  # Job A — build-windows-cpu
-  # Full Windows toolset from the blackwell/tma source tree, CUDA OFF.
-  # Recipe mirrors upstream windows-cpu (release.yml) as closely as
-  # practical on a windows-2022 runner.
-  # ======================================================================
-  build-windows-cpu:
-    runs-on: windows-2022
-    name: cpu toolset (tma base)
+  prepare:
+    runs-on: ubuntu-latest
     outputs:
-      cpu_sha: ${{ steps.src.outputs.sha }}
-      cpu_short_sha: ${{ steps.src.outputs.short_sha }}
-      cpu_base_sha: ${{ steps.src.outputs.base_sha }}
-      msvc_version: ${{ steps.build.outputs.msvc_version }}
+      matrix: ${{ steps.source.outputs.matrix }}
     steps:
-      - name: Checkout (TMA branch)
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_VARIANT: ${{ inputs.variant || 'all' }}
+        shell: python
+        run: |
+          import json, os, urllib.request, urllib.parse
+          selected = os.environ["SELECTED_VARIANT"]
+          variants = {"stock": "main", "cpasync": "blackwell/cpasync",
+                      "cutlass": "blackwell/cutlass", "tma": "blackwell/tma"}
+          if selected != "all" and selected not in variants:
+              raise ValueError("Unknown variant")
+          matrix = []
+          for variant, branch in variants.items():
+              if selected not in ("all", variant):
+                  continue
+              url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/git/ref/heads/{urllib.parse.quote(branch, safe='')}"
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  sha = json.load(response)["object"]["sha"]
+              matrix.append({"variant": variant, "source_sha": sha, "short_sha": sha[:10],
+                             "cmake_extra": "-DGGML_CUDA_CUTLASS=ON" if variant == "cutlass" else ""})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({"include": matrix}) + "\n")
+
+  build-cpu:
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      SOURCE_SHA: ${{ matrix.source_sha }}
+      SHORT_SHA: ${{ matrix.short_sha }}
+    name: ${{ matrix.variant }} CPU toolset
+    runs-on: windows-2022
+    steps:
+      - name: Checkout exact ${{ matrix.variant }} source
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.FORK }}
-          ref: ${{ env.TMA_BRANCH }}
-          fetch-depth: 20
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
 
-      - name: Record source provenance
-        id: src
+      - name: Verify source SHA
         shell: pwsh
         run: |
-          $sha = (git rev-parse HEAD).Trim()
-          $short = $sha.Substring(0, 10)
-          # upstream source base = the commit we build from (HEAD = blackwell/tma).
-          # The TMA delta is backend-only (ggml-cuda/*), so the build source SHA
-          # is the correct provenance anchor. We do NOT attempt git merge-base
-          # here: actions/checkout creates a detached HEAD that may lack a
-          # master ref, and native git 2>&1 redirects can leave a non-zero exit
-          # code that fails the step.
-          $base = $sha
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-          "short_sha=$short" >> $env:GITHUB_OUTPUT
-          "base_sha=$base" >> $env:GITHUB_OUTPUT
-          Write-Host "cpu source_sha=$sha base_sha=$base"
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+          Write-Host "CPU source=$actual"
 
       - name: Install Ninja
         shell: pwsh
         run: choco install ninja -y
 
-      - name: "Build full toolset (CUDA OFF, BoringSSL ON — upstream recipe)"
-        id: build
+      - name: Build full Release toolset (CUDA OFF)
         shell: cmd
         run: |
-          rem 1. MSVC + Windows SDK env in the SAME process as the build
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           if errorlevel 1 exit /b 1
           where cl
-          if errorlevel 1 (echo [FATAL] cl.exe not found after vcvarsall & exit /b 1)
-          where link
-          if errorlevel 1 (echo [FATAL] link.exe not found after vcvarsall & exit /b 1)
-          cl > cl_banner.txt 2>&1
-          findstr /R "Version [0-9]" cl_banner.txt > cl_version_line.txt
-          if errorlevel 1 (echo [FATAL] could not extract MSVC version from cl banner & exit /b 1)
-          rem 2. Never reuse a stale CMake cache
-          if exist build rmdir /s /q build
-          rem 3. Configure — upstream windows-cpu flags, CUDA OFF, BoringSSL ON.
-          rem    No CMAKE_C/CXX_COMPILER, no toolchain file.
-          cmake -S . -B build -G "Ninja Multi-Config" ^
+          if errorlevel 1 exit /b 1
+          if exist build-cpu rmdir /s /q build-cpu
+          cmake -S . -B build-cpu -G "Ninja Multi-Config" ^
             -DLLAMA_BUILD_SERVER=ON ^
             -DLLAMA_BUILD_TOOLS=ON ^
             -DLLAMA_BUILD_TESTS=OFF ^
@@ -136,84 +94,59 @@ jobs:
             -DGGML_OPENMP=ON ^
             -DGGML_RPC=ON ^
             -DGGML_CUDA=OFF
-          if errorlevel 1 (echo [FATAL] cmake configure failed & exit /b 1)
-          rem 4. Build Release EXPLICITLY (Ninja Multi-Config ignores -DCMAKE_BUILD_TYPE)
+          if errorlevel 1 exit /b 1
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build --config Release -j %NINJA_JOBS% && goto :okbuild
-          echo [FATAL] cmake build (Release) failed
-          exit /b 1
-          :okbuild
-          rem 5. Verify canonical Release output dir
-          if not exist build\bin\Release\llama-server.exe (echo [FATAL] build\bin\Release\llama-server.exe missing & exit /b 1)
-          if not exist build\bin\Release\llama-server-impl.dll (echo [FATAL] build\bin\Release\llama-server-impl.dll missing & exit /b 1)
-          dir build\bin\Release
+          cmake --build build-cpu --config Release -j %NINJA_JOBS%
+          if errorlevel 1 exit /b 1
+          if not exist build-cpu\bin\Release\llama-bench.exe exit /b 1
+          if not exist build-cpu\bin\Release\llama-server.exe exit /b 1
+          if not exist build-cpu\bin\Release\llama-server-impl.dll exit /b 1
+          if not exist build-cpu\bin\Release\ggml-base.dll exit /b 1
 
-      - name: "Capture MSVC version"
-        id: msvc
+      - name: Write CPU provenance
         shell: pwsh
         run: |
-          $line = (Get-Content cl_banner.txt | Select-String -Pattern 'Version\s+([\d.]+)' | Select-Object -First 1)
-          if (-not $line) { throw "MSVC version detection failed (cl_banner.txt)" }
-          $m = [regex]::Match($line, 'Version\s+([\d.]+)')
-          if (-not $m.Success) { throw "MSVC version parse failed: $($line)" }
-          $v = $m.Groups[1].Value
-          "msvc_version=$v" >> $env:GITHUB_OUTPUT
-          Write-Host "msvc_version=$v"
+          @(
+            'variant=${{ matrix.variant }}',
+            "source_sha=$env:SOURCE_SHA",
+            'component=cpu-toolset',
+            'configuration=Release',
+            'cuda=off',
+            'ggml_backend_dl=on'
+          ) | Set-Content 'build-cpu/bin/Release/BUILD-VARIANT-CPU.txt' -Encoding utf8
 
-      - name: "Package toolset (upstream exact command)"
-        id: pkg
-        shell: pwsh
-        run: |
-          # Upstream windows-cpu packaging: package the whole Release bin dir.
-          7z a -snl llama-bin-win-cpu-x64.zip .\build\bin\Release\*
-          if ($LASTEXITCODE -ne 0) { throw "7z packaging of the CPU toolset failed" }
-          $size = (Get-Item llama-bin-win-cpu-x64.zip).Length
-          Write-Host "llama-bin-win-cpu-x64.zip created ($size bytes)"
-
-      - name: Upload CPU toolset artifact
+      - name: Upload CPU toolset
         uses: actions/upload-artifact@v4
         with:
-          name: llama-bin-win-cpu-x64.zip
-          path: llama-bin-win-cpu-x64.zip
+          name: ${{ matrix.variant }}-cpu-${{ env.SHORT_SHA }}
+          path: build-cpu/bin/Release/*
           retention-days: 14
 
-  # ======================================================================
-  # Job B — build-tma-cuda
-  # ONLY ggml-cuda.dll from the blackwell/tma tree (upstream windows-cuda
-  # recipe), with the Blackwell specialization 120a-real.
-  # ======================================================================
-  build-tma-cuda:
+  build-cuda:
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      SOURCE_SHA: ${{ matrix.source_sha }}
+      SHORT_SHA: ${{ matrix.short_sha }}
+    name: ${{ matrix.variant }} ggml-cuda sm120a
     runs-on: windows-2022
-    name: tma cuda backend (120a-real)
-    outputs:
-      cuda_sha: ${{ steps.src.outputs.sha }}
-      cuda_short_sha: ${{ steps.src.outputs.short_sha }}
-      cuda_base_sha: ${{ steps.src.outputs.base_sha }}
-      cuda_version: ${{ steps.toolchain.outputs.cuda_version }}
-      cmake_version: ${{ steps.toolchain.outputs.cmake_version }}
-      ninja_version: ${{ steps.toolchain.outputs.ninja_version }}
-      msvc_version: ${{ steps.build.outputs.msvc_version }}
     steps:
-      - name: Checkout (TMA branch)
+      - name: Checkout exact ${{ matrix.variant }} source
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.FORK }}
-          ref: ${{ env.TMA_BRANCH }}
-          fetch-depth: 20
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
 
-      - name: Record source provenance
-        id: src
+      - name: Verify source SHA
         shell: pwsh
         run: |
-          $sha = (git rev-parse HEAD).Trim()
-          $short = $sha.Substring(0, 10)
-          $base = $sha
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-          "short_sha=$short" >> $env:GITHUB_OUTPUT
-          "base_sha=$base" >> $env:GITHUB_OUTPUT
-          Write-Host "cuda source_sha=$sha base_sha=$base"
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:SOURCE_SHA) { throw "Expected $env:SOURCE_SHA, got $actual" }
+          Write-Host "CUDA source=$actual"
 
-      - name: Install Cuda Toolkit ${{ env.CUDA_VERSION }}
+      - name: Install CUDA Toolkit 13.3
         uses: ./.github/actions/windows-setup-cuda
         with:
           cuda_version: ${{ env.CUDA_VERSION }}
@@ -223,401 +156,190 @@ jobs:
         shell: pwsh
         run: choco install ninja -y
 
-      - name: "Toolchain versions (diagnostic)"
-        id: toolchain
-        shell: pwsh
-        run: |
-          $nvccOut = & "$env:CUDA_PATH\bin\nvcc.exe" --version 2>&1
-          $m = [regex]::Match(($nvccOut -join "`n"), 'release (\d+\.\d+)')
-          if (-not $m.Success) { throw "CUDA version detection FAILED: $($nvccOut -join ' ')" }
-          "cuda_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          $cmOut = & cmake --version
-          $m = [regex]::Match(($cmOut -join "`n"), 'version (\d+\.\d+\.\d+)')
-          if (-not $m.Success) { throw "CMake version detection FAILED: $($cmOut -join ' ')" }
-          "cmake_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          $ninjaOut = & ninja --version
-          if (-not $ninjaOut) { throw "Ninja version detection FAILED" }
-          "ninja_version=$($ninjaOut.Trim())" >> $env:GITHUB_OUTPUT
-          Write-Host "toolchain: cuda=$($m.Groups[1].Value) ninja=$($ninjaOut.Trim())"
-          Write-Host "CUDA_PATH=$env:CUDA_PATH"
-
-      - name: "Build TMA CUDA backend (upstream windows-cuda recipe, 120a-real)"
-        id: build
+      - name: Build Release ggml-cuda.dll (120a-real)
         shell: cmd
         run: |
-          rem 1. MSVC + Windows SDK env in the SAME process as the build
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           if errorlevel 1 exit /b 1
           where cl
-          if errorlevel 1 (echo [FATAL] cl.exe not found after vcvarsall & exit /b 1)
+          if errorlevel 1 exit /b 1
           where nvcc
-          if errorlevel 1 (echo [FATAL] nvcc not found - is CUDA_PATH\bin on PATH? CUDA_PATH=%CUDA_PATH% & exit /b 1)
-          cl > cl_banner.txt 2>&1
-          findstr /R "Version [0-9]" cl_banner.txt > cl_version_line.txt
-          if errorlevel 1 (echo [FATAL] could not extract MSVC version from cl banner & exit /b 1)
-          nvcc --version
-          rem 2. Never reuse a stale CMake cache
-          if exist build rmdir /s /q build
-          rem 3. Configure — upstream windows-cuda CUDA flags + Blackwell arch.
-          rem    No CMAKE_C/CXX_COMPILER, no toolchain file; nvcc on PATH.
-          cmake -S . -B build -G "Ninja Multi-Config" ^
+          if errorlevel 1 exit /b 1
+          if exist build-cuda rmdir /s /q build-cuda
+          cmake -S . -B build-cuda -G "Ninja Multi-Config" ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
             -DGGML_CUDA=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
-            -DCMAKE_CUDA_ARCHITECTURES=120a-real
-          if errorlevel 1 (echo [FATAL] cmake configure failed & type build\CMakeFiles\CMakeConfigureLog.yaml & exit /b 1)
-          rem 4. Build ONLY the ggml-cuda backend target, Release EXPLICITLY
+            -DCMAKE_CUDA_FLAGS=-lineinfo ^
+            -DCMAKE_CUDA_ARCHITECTURES=120a-real ${{ matrix.cmake_extra }}
+          if errorlevel 1 exit /b 1
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
-          cmake --build build --config Release -j %NINJA_JOBS% --target ggml-cuda && goto :okbuild
-          echo [FATAL] cmake build (Release, ggml-cuda) failed
-          exit /b 1
-          :okbuild
-          rem 5. Verify the ONLY required artifact
-          if not exist build\bin\Release\ggml-cuda.dll (echo [FATAL] build\bin\Release\ggml-cuda.dll missing & exit /b 1)
-          dir build\bin\Release
+          cmake --build build-cuda --config Release -j %NINJA_JOBS% --target ggml-cuda
+          if errorlevel 1 exit /b 1
+          if not exist build-cuda\bin\Release\ggml-cuda.dll exit /b 1
 
-      - name: "Capture MSVC version"
-        id: msvc
+      - name: Write CUDA provenance and hash
         shell: pwsh
         run: |
-          $line = (Get-Content cl_banner.txt | Select-String -Pattern 'Version\s+([\d.]+)' | Select-Object -First 1)
-          if (-not $line) { throw "MSVC version detection failed (cl_banner.txt)" }
-          $m = [regex]::Match($line, 'Version\s+([\d.]+)')
-          if (-not $m.Success) { throw "MSVC version parse failed: $($line)" }
-          "msvc_version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
-          Write-Host "msvc_version=$($m.Groups[1].Value)"
+          @(
+            'variant=${{ matrix.variant }}',
+            "source_sha=$env:SOURCE_SHA",
+            'component=ggml-cuda',
+            'cuda=13.3',
+            'cmake_cuda_architectures=120a-real',
+            'configuration=Release'
+          ) | Set-Content 'build-cuda/bin/Release/BUILD-VARIANT-CUDA.txt' -Encoding utf8
+          Get-FileHash 'build-cuda/bin/Release/ggml-cuda.dll' -Algorithm SHA256 | Format-List
 
-      - name: "Package TMA ggml-cuda.dll (upstream exact command)"
-        id: pkg
-        shell: pwsh
-        run: |
-          7z a -snl llama-bin-win-cuda-13.3-x64-tma.zip .\build\bin\Release\ggml-cuda.dll
-          if ($LASTEXITCODE -ne 0) { throw "7z packaging of ggml-cuda.dll failed" }
-          $size = (Get-Item llama-bin-win-cuda-13.3-x64-tma.zip).Length
-          Write-Host "llama-bin-win-cuda-13.3-x64-tma.zip created ($size bytes)"
-
-      - name: Upload TMA CUDA backend artifact
+      - name: Upload CUDA backend
         uses: actions/upload-artifact@v4
         with:
-          name: llama-bin-win-cuda-13.3-x64-tma.zip
-          path: llama-bin-win-cuda-13.3-x64-tma.zip
+          name: ${{ matrix.variant }}-cuda-${{ env.SHORT_SHA }}
+          path: |
+            build-cuda/bin/Release/ggml-cuda.dll
+            build-cuda/bin/Release/BUILD-VARIANT-CUDA.txt
           retention-days: 14
 
-  # ======================================================================
-  # Job C — cuda-runtime
-  # CUDA 13.3 runtime DLLs from the installed toolkit, staged with upstream's
-  # EXACT robocopy commands. No recursive scan.
-  # ======================================================================
   cuda-runtime:
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      SOURCE_SHA: ${{ matrix.source_sha }}
+      SHORT_SHA: ${{ matrix.short_sha }}
+    name: CUDA 13.3 runtime
     runs-on: windows-2022
-    name: cuda 13.3 runtime
     steps:
-      - name: Checkout (for local windows-setup-cuda action)
+      - name: Checkout exact source for local CUDA setup action
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.FORK }}
-          ref: ${{ env.TMA_BRANCH }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
 
-      - name: Install Cuda Toolkit ${{ env.CUDA_VERSION }}
+      - name: Install CUDA Toolkit 13.3
         uses: ./.github/actions/windows-setup-cuda
         with:
           cuda_version: ${{ env.CUDA_VERSION }}
           cuda_arch: ${{ env.CUDA_PKG }}
 
-      - name: "Stage CUDA runtime DLLs (upstream exact robocopy commands)"
-        id: stage
+      - name: Stage CUDA runtime DLLs
         shell: pwsh
         run: |
-          # Upstream windows-cuda "Copy and pack Cuda runtime (x64)" — exact.
-          $dst = '.\build\bin\cudart\'
-          New-Item -ItemType Directory -Path $dst -Force | Out-Null
-          Write-Host "CUDA install location: $env:CUDA_PATH"
-          robocopy "${env:CUDA_PATH}\bin" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-          robocopy "${env:CUDA_PATH}\lib" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-          robocopy "${env:CUDA_PATH}\bin\x64" $dst cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-          # robocopy exit codes 0-1 mean success (1 = files copied); 8+ = error.
-          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
-          $files = @(Get-ChildItem $dst -File | ForEach-Object { $_.Name })
-          Write-Host "Staged CUDA runtime DLLs:"
-          $files | ForEach-Object { Write-Host "  $_" }
-          # Sanity: the three required runtime families must be present.
-          if (-not ($files | Where-Object { $_ -like 'cudart64_*' })) { throw "no cudart64_*.dll staged" }
-          if (-not ($files | Where-Object { $_ -like 'cublas64_*' })) { throw "no cublas64_*.dll staged" }
-          if (-not ($files | Where-Object { $_ -like 'cublasLt64_*' })) { throw "no cublasLt64_*.dll staged" }
-          # Package with the upstream exact command.
-          7z a cudart-llama-bin-win-cuda-13.3-x64.zip $dst\*
-          if ($LASTEXITCODE -ne 0) { throw "7z packaging of CUDA runtime failed" }
-          $size = (Get-Item cudart-llama-bin-win-cuda-13.3-x64.zip).Length
-          Write-Host "cudart-llama-bin-win-cuda-13.3-x64.zip created ($size bytes)"
-
-      - name: Upload CUDA runtime artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cudart-llama-bin-win-cuda-13.3-x64.zip
-          path: cudart-llama-bin-win-cuda-13.3-x64.zip
-          retention-days: 14
-
-  # ======================================================================
-  # Job D — merge-tma-package
-  # Injects the CPU toolset ZIP + TMA ggml-cuda.dll + CUDA runtime DLLs into
-  # ONE self-contained package, exactly as upstream's release "Merge
-  # artifacts" step injects the windows-cpu ZIP into the CUDA ZIP.
-  # ======================================================================
-  merge-tma-package:
-    needs: [build-windows-cpu, build-tma-cuda, cuda-runtime]
-    runs-on: windows-2022
-    name: merge tma package
-    steps:
-      - name: "Checkout (for scripts/extract_tma_packages.py)"
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.FORK }}
-          ref: master
-          fetch-depth: 1
-
-      - name: "Download artifacts"
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-
-      - name: "Merge into one self-contained package"
-        id: merge
-        shell: pwsh
-        run: |
-          $dist = 'dist'
-          # download-artifact@v4 extracts each artifact into dist\<name>/ and
-          # the ZIP files are locked on Windows (Defender/actions framework).
-          # All extraction methods (ZipFile, 7z, Expand-Archive) fail on the
-          # locked source ZIPs. Fix: sleep to let locks release, then Copy-Item
-          # with retry to get an unlocked copy, then Expand-Archive the copies.
-          $cpuZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cpu-x64.zip' | Select-Object -First 1
-          $cudaZip = Get-ChildItem -Path $dist -Recurse -Filter 'llama-bin-win-cuda-13.3-x64-tma.zip' | Select-Object -First 1
-          $cudartZip = Get-ChildItem -Path $dist -Recurse -Filter 'cudart-llama-bin-win-cuda-13.3-x64.zip' | Select-Object -First 1
-          if (-not $cpuZip) { throw "CPU toolset artifact not found" }
-          if (-not $cudaZip) { throw "TMA CUDA backend artifact not found" }
-          if (-not $cudartZip) { throw "CUDA runtime artifact not found" }
-          # Sleep to let Windows file-locks / Defender release the downloaded ZIPs.
-          Write-Host "Sleeping 5s to let file-locks release..."
-          Start-Sleep -Seconds 5
-          # Copy the 3 zips to a temp dir with retry (handles residual locks).
-          $src = Join-Path $env:RUNNER_TEMP 'tma-src'
-          if (Test-Path $src) { Remove-Item $src -Recurse -Force }
-          New-Item -ItemType Directory -Path $src -Force | Out-Null
-          $copies = @(@($cpuZip.FullName, 'cpu.zip'), @($cudaZip.FullName, 'cuda.zip'), @($cudartZip.FullName, 'cudart.zip'))
-          foreach ($c in $copies) {
-            $from = $c[0]; $to = Join-Path $src $c[1]
-            $ok = $false
-            for ($i = 0; $i -lt 5 -and -not $ok; $i++) {
-              try { Copy-Item $from $to -Force; $ok = $true }
-              catch { Write-Host "Copy attempt $($i+1) failed: $($_.Exception.Message); retrying in 3s..."; Start-Sleep -Seconds 3 }
+          New-Item -ItemType Directory -Force -Path cuda-runtime | Out-Null
+          $patterns = @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')
+          $matches = @(
+            foreach ($pattern in $patterns) {
+              Get-ChildItem -Path $env:CUDA_PATH -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue
             }
-            if (-not $ok) { throw "Failed to copy $from after 5 attempts" }
+          )
+          if ($matches.Count -eq 0) {
+            throw "No CUDA runtime DLLs found recursively under $env:CUDA_PATH"
           }
-          # NEW empty staging dir
-          $stage = Join-Path $env:RUNNER_TEMP 'tma-merge'
-          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-          New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # Extract the COPIES with Python's zipfile (more robust against
-          # Windows file-locks than PowerShell's Expand-Archive).
-          Write-Host "Extracting with Python zipfile (extract_tma_packages.py)..."
-          python .github/scripts/extract_tma_packages.py $src $stage
-          if ($LASTEXITCODE -ne 0) { throw "Python zipfile extraction failed (exit $LASTEXITCODE)" }
-          # Validate final staging for the required files.
-          $files = @(Get-ChildItem $stage -File | ForEach-Object { $_.Name })
-          Write-Host "Merged staging contents ($($files.Count) files):"
-          $files | ForEach-Object { Write-Host "  $_" }
-          $missing = @()
-          foreach ($req in @('llama-server.exe','llama-server-impl.dll','llama-bench.exe','llama.dll','llama-common.dll','ggml.dll','ggml-base.dll','ggml-cuda.dll')) {
-            if (-not (Test-Path (Join-Path $stage $req))) { $missing += $req }
+          Write-Host "CUDA runtime candidates:"
+          $matches | Sort-Object FullName | ForEach-Object { Write-Host "  $($_.FullName)" }
+          foreach ($group in ($matches | Group-Object Name)) {
+            $hashes = @(
+              $group.Group |
+                ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash } |
+                Sort-Object -Unique
+            )
+            if ($hashes.Count -ne 1) {
+              throw "Conflicting copies found for $($group.Name): $($hashes -join ', ')"
+            }
+            $source = $group.Group | Sort-Object FullName | Select-Object -First 1
+            Copy-Item $source.FullName -Destination cuda-runtime -Force
           }
-          $cpuDlls = @($files | Where-Object { $_ -like 'ggml-cpu-*.dll' })
-          if ($cpuDlls.Count -eq 0) { $missing += 'ggml-cpu-*.dll (at least one CPU backend)' }
-          $cudaDlls = @($files | Where-Object { $_ -like 'cudart64_*.dll' })
-          $cublasDlls = @($files | Where-Object { $_ -like 'cublas64_*.dll' })
-          $cublasLtDlls = @($files | Where-Object { $_ -like 'cublasLt64_*.dll' })
-          if ($cudaDlls.Count -eq 0) { $missing += 'cudart64_*.dll' }
-          if ($cublasDlls.Count -eq 0) { $missing += 'cublas64_*.dll' }
-          if ($cublasLtDlls.Count -eq 0) { $missing += 'cublasLt64_*.dll' }
-          if ($missing.Count -gt 0) { throw "merged package missing required files: $($missing -join ', ')" }
-          Write-Host "Merged package validated: $($files.Count) files"
-          # Write the zip_name output for the metadata step.
-          "stage=$stage" >> $env:GITHUB_OUTPUT
+          Get-ChildItem cuda-runtime -File | Sort-Object Name | Format-Table Name,Length
+          foreach ($required in $patterns) {
+            if (-not (Get-ChildItem cuda-runtime -Filter $required -File -ErrorAction SilentlyContinue)) {
+              throw "Missing CUDA runtime component: $required"
+            }
+          }
 
-      - name: "BUILD-METADATA.json + SHA256SUMS.txt (full provenance)"
-        id: meta
-        shell: pwsh
-        env:
-          CPU_SHA: ${{ needs.build-windows-cpu.outputs.cpu_sha }}
-          CPU_SHORT: ${{ needs.build-windows-cpu.outputs.cpu_short_sha }}
-          CPU_BASE: ${{ needs.build-windows-cpu.outputs.cpu_base_sha }}
-          CUDA_SHA: ${{ needs.build-tma-cuda.outputs.cuda_sha }}
-          CUDA_SHORT: ${{ needs.build-tma-cuda.outputs.cuda_short_sha }}
-          CUDA_BASE: ${{ needs.build-tma-cuda.outputs.cuda_base_sha }}
-          CUDA_VERSION: ${{ needs.build-tma-cuda.outputs.cuda_version }}
-          CMAKE_VERSION: ${{ needs.build-tma-cuda.outputs.cmake_version }}
-          NINJA_VERSION: ${{ needs.build-tma-cuda.outputs.ninja_version }}
-          MSVC_CPU: ${{ needs.build-windows-cpu.outputs.msvc_version }}
-          MSVC_CUDA: ${{ needs.build-tma-cuda.outputs.msvc_version }}
-        run: |
-          $stage = '${{ steps.merge.outputs.stage }}'
-          $zipName = "llama-win-cuda${env:CUDA_VERSION}-sm120a-tma-${env:CUDA_SHORT}.zip"
-          $metadata = [ordered]@{
-            variant                   = 'tma'
-            build_timestamp           = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-            upstream_base_sha         = $env:CPU_BASE
-            tma_sha                   = $env:CUDA_SHA
-            tma_short_sha             = $env:CUDA_SHORT
-            original_pr_sha           = '10247a1a207746b92050c7cbb6855f45f8242c9f'
-            pr                        = '#28572'
-            cuda                      = $env:CUDA_VERSION
-            cmake_cuda_architectures  = '120a-real'
-            configuration             = 'Release'
-            cpu_runtime_source_sha    = $env:CPU_SHA
-            cpu_runtime_short_sha     = $env:CPU_SHORT
-            cuda_backend_source_sha   = $env:CUDA_SHA
-            cuda_backend_short_sha    = $env:CUDA_SHORT
-            msvc_version_cpu          = $env:MSVC_CPU
-            msvc_version_cuda         = $env:MSVC_CUDA
-            cmake_version             = $env:CMAKE_VERSION
-            ninja_version             = $env:NINJA_VERSION
-            github_actions_run_id     = $env:GITHUB_RUN_ID
-            github_runner_image       = $env:RUNNER_IMAGE
-            build_recipe              = 'upstream release.yml windows-cpu + windows-cuda architecture (split toolset/backend/runtime, merged in Job D)'
-            target_gpu                = 'NVIDIA GeForce RTX 5090 (Blackwell, SM120)'
-            gpu_validation            = 'REQUIRES LOCAL RTX 5090 VALIDATION - GPU runtime NOT verified on the CI runner'
-          }
-          # HARD PROVENANCE CHECK: every important field must be non-empty.
-          $required = @('variant','upstream_base_sha','tma_sha','original_pr_sha','cuda','cmake_cuda_architectures','configuration','cpu_runtime_source_sha','cuda_backend_source_sha')
-          $missing = @()
-          foreach ($k in $required) {
-            $val = $metadata[$k]
-            if ([string]::IsNullOrWhiteSpace([string]$val)) { $missing += $k }
-          }
-          if ($missing.Count -gt 0) { throw "BUILD-METADATA provenance fields empty/missing: $($missing -join ', ')" }
-          if ($metadata.configuration -ne 'Release') { throw "configuration is $($metadata.configuration), expected Release" }
-          $metadata | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $stage 'BUILD-METADATA.json') -Encoding utf8
-          # SHA256SUMS for every .exe/.dll in the package.
-          Push-Location $stage
-          $lines = @()
-          foreach ($f in (Get-ChildItem -File | Where-Object { $_.Extension -in '.exe','.dll' } | Sort-Object Name)) {
-            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
-            $lines += ("{0}  {1}" -f $h, $f.Name)
-          }
-          $lines | Set-Content 'SHA256SUMS.txt' -Encoding utf8
-          Pop-Location
-          Write-Host "BUILD-METADATA.json + SHA256SUMS.txt written. Required-file check:"
-          $requiredFiles = @('llama-server.exe','llama-bench.exe','llama-server-impl.dll','llama.dll','llama-common.dll','ggml.dll','ggml-base.dll','ggml-cuda.dll','BUILD-METADATA.json','SHA256SUMS.txt')
-          $missingFiles = @()
-          foreach ($req in $requiredFiles) {
-            $ok = Test-Path (Join-Path $stage $req)
-            Write-Host (("{0,-24} {1}" -f $req, $(if ($ok) { 'OK' } else { 'MISSING' })))
-            if (-not $ok) { $missingFiles += $req }
-          }
-          $cpuDlls = @(Get-ChildItem $stage -Filter 'ggml-cpu-*.dll' | ForEach-Object { $_.Name })
-          if ($cpuDlls.Count -lt 1) { Write-Host 'ggml-cpu-*.dll               MISSING'; $missingFiles += 'ggml-cpu-*.dll' }
-          foreach ($pat in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
-            $found = @(Get-ChildItem $stage -Filter $pat | ForEach-Object { $_.Name })
-            if ($found.Count -lt 1) { Write-Host ("{0,-24} MISSING" -f $pat); $missingFiles += $pat }
-          }
-          if ($missingFiles.Count -gt 0) { throw "required package files missing: $($missingFiles -join ', ')" }
-          Write-Host "All required files present."
-          # Final sanity check: PE import validation (debug-CRT guard + closure).
-          # This is a sanity check on the merged staging, NOT a build system.
-          $report = Join-Path $env:RUNNER_TEMP 'PE-VALIDATE-REPORT.json'
-          $env:PYTHONIOENCODING = 'utf8'; $env:PYTHONUTF8 = '1'
-          python .github/scripts/pe_validate.py $stage --json $report
-          $rc = $LASTEXITCODE
-          Write-Host "PE validation exit code: $rc"
-          if (Test-Path $report) { Get-Content $report | ForEach-Object { Write-Host $_ } }
-          if ($rc -ne 0) { throw "PE dependency-closure validation FAILED (see report above)" }
-          Copy-Item $report (Join-Path $stage 'PE-VALIDATE-REPORT.json') -Force
-          # Create the final self-contained ZIP.
-          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
-          Compress-Archive -Path "$stage\*" -DestinationPath $zipPath -Force
-          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
-          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
-          Write-Host "Created $zipName"
-
-      - name: "Validate final ZIP structure"
-        id: zipcheck
-        shell: pwsh
-        run: |
-          $checkDir = Join-Path $env:RUNNER_TEMP 'zipcheck-tma'
-          if (Test-Path $checkDir) { Remove-Item $checkDir -Recurse -Force }
-          New-Item -ItemType Directory -Path $checkDir -Force | Out-Null
-          Expand-Archive -Path '${{ steps.meta.outputs.zip_path }}' -DestinationPath $checkDir -Force
-          $must = @('llama-server.exe','llama-server-impl.dll','llama-bench.exe','llama.dll','llama-common.dll','ggml.dll','ggml-base.dll','ggml-cuda.dll','BUILD-METADATA.json','SHA256SUMS.txt','PE-VALIDATE-REPORT.json')
-          $missing = @()
-          foreach ($m in $must) { if (-not (Test-Path (Join-Path $checkDir $m))) { $missing += $m } }
-          $cpuDlls = @(Get-ChildItem $checkDir -Filter 'ggml-cpu-*.dll' | ForEach-Object { $_.Name })
-          if ($cpuDlls.Count -eq 0) { $missing += 'ggml-cpu-*.dll' }
-          foreach ($pat in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
-            $found = @(Get-ChildItem $checkDir -Filter $pat | ForEach-Object { $_.Name })
-            if ($found.Count -eq 0) { $missing += $pat }
-          }
-          if ($missing.Count -gt 0) { throw "ZIP missing required files: $($missing -join ', ')" }
-          # Verify every SHA256SUMS entry against the actual file.
-          foreach ($line in (Get-Content (Join-Path $checkDir 'SHA256SUMS.txt'))) {
-            $parts = $line -split '\s+'
-            if ($parts.Count -lt 2) { continue }
-            $actual = (Get-FileHash (Join-Path $checkDir $parts[1]) -Algorithm SHA256).Hash.ToLower()
-            if ($actual -ne $parts[0]) { throw "hash mismatch for $($parts[1]): $actual != $($parts[0])" }
-          }
-          # Verify BUILD-METADATA.json is valid JSON.
-          $null = Get-Content (Join-Path $checkDir 'BUILD-METADATA.json') -Raw | ConvertFrom-Json
-          Write-Host "ZIP validation OK: $($must -join ', ') + CPU/CUDA runtime families + all SHA256 + valid metadata JSON"
-
-      - name: "Upload final TMA package"
+      - name: Upload CUDA runtime
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.zip_name }}
-          path: ${{ steps.meta.outputs.zip_path }}
+          name: ${{ matrix.variant }}-cudart-13.3-x64
+          path: cuda-runtime/*
           retention-days: 14
 
-  # ======================================================================
-  # publish-release — optional (publish_release input).
-  # ======================================================================
-  publish-release:
-    if: inputs.publish_release == true && needs.merge-tma-package.result == 'success'
-    needs: [merge-tma-package]
+  merge-package:
+    needs: [prepare, build-cpu, build-cuda, cuda-runtime]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      SOURCE_SHA: ${{ matrix.source_sha }}
+      SHORT_SHA: ${{ matrix.short_sha }}
+    name: merge coherent ${{ matrix.variant }} package
     runs-on: windows-2022
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     steps:
-      - name: "Download final TMA package"
+      - name: Download CPU toolset
         uses: actions/download-artifact@v4
         with:
-          path: dist
-          pattern: 'llama-win-cuda*-sm120a-tma-*.zip'
-          merge-multiple: true
-      - name: "Create release with asset"
+          name: ${{ matrix.variant }}-cpu-${{ env.SHORT_SHA }}
+          path: package
+
+      - name: Download CUDA backend
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.variant }}-cuda-${{ env.SHORT_SHA }}
+          path: package
+
+      - name: Download CUDA runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.variant }}-cudart-13.3-x64
+          path: package
+
+      - name: Validate coherent package
         shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
-          $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
-          $assets = @(Get-ChildItem dist -Filter 'llama-win-cuda*-sm120a-tma-*.zip' | ForEach-Object { $_.FullName })
-          if ($assets.Count -eq 0) { throw "no TMA ZIP found to publish" }
-          $assetName = Split-Path $assets[0] -Leaf
-          $m = [regex]::Match($assetName, '-tma-([0-9a-f]+)\.zip$')
-          $shortSha = if ($m.Success) { $m.Groups[1].Value } else { 'unknown' }
-          $tag = "blackwell-tma-${date}-${shortSha}"
-          $notes = @"
-          Blackwell (RTX 5090 / SM120a) TMA Windows x64 CUDA build.
+          $required = @(
+            'llama-bench.exe',
+            'llama-server.exe',
+            'llama-server-impl.dll',
+            'llama.dll',
+            'llama-common.dll',
+            'ggml.dll',
+            'ggml-base.dll',
+            'ggml-cuda.dll',
+            'BUILD-VARIANT-CPU.txt',
+            'BUILD-VARIANT-CUDA.txt'
+          )
+          foreach ($f in $required) {
+            if (-not (Test-Path "package/$f")) { throw "Missing required package file: $f" }
+          }
+          if (-not (Get-ChildItem package -Filter 'ggml-cpu*.dll' -File)) { throw 'No ggml-cpu backend DLLs found' }
+          foreach ($pattern in @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')) {
+            if (-not (Get-ChildItem package -Filter $pattern -File)) { throw "Missing runtime: $pattern" }
+          }
+          $cpuProv = Get-Content package/BUILD-VARIANT-CPU.txt -Raw
+          $cudaProv = Get-Content package/BUILD-VARIANT-CUDA.txt -Raw
+          if ($cpuProv -notmatch [regex]::Escape($env:SOURCE_SHA)) { throw 'CPU provenance SHA mismatch' }
+          if ($cudaProv -notmatch [regex]::Escape($env:SOURCE_SHA)) { throw 'CUDA provenance SHA mismatch' }
+          Get-FileHash package/ggml-cuda.dll -Algorithm SHA256 | Format-List
+          Get-ChildItem package | Sort-Object Name | Format-Table Name,Length
 
-          Asset: $assetName
+      - name: Create final ZIP
+        shell: pwsh
+        run: |
+          $zip = "llama-win-cuda13.3-sm120a-${{ matrix.variant }}-$env:SHORT_SHA.zip"
+          Push-Location package
+          7z a -snl "../$zip" .\*
+          if ($LASTEXITCODE -ne 0) { throw 'Final 7z packaging failed' }
+          Pop-Location
+          Get-FileHash $zip -Algorithm SHA256 | Format-List
+          Get-Item $zip | Format-List Name,Length
 
-          Architecture: upstream release.yml windows-cpu + windows-cuda split.
-          - CPU toolset from blackwell/tma (CUDA OFF, BoringSSL ON)
-          - TMA ggml-cuda.dll (120a-real, CUDA 13.3)
-          - CUDA 13.3 runtime DLLs (cudart/cublas/cublasLt)
-          - BUILD-METADATA.json + SHA256SUMS.txt + PE-VALIDATE-REPORT.json
+      - name: Upload coherent ${{ matrix.variant }} package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-win-cuda13.3-sm120a-${{ matrix.variant }}-${{ env.SHORT_SHA }}
+          path: llama-win-cuda13.3-sm120a-${{ matrix.variant }}-${{ env.SHORT_SHA }}.zip
+          retention-days: 14
 
-          GPU runtime validation: NOT performed on CI. REQUIRES LOCAL RTX 5090 VALIDATION.
-          "@
-          gh release delete "$tag" --yes --cleanup-tag 2>$null
-          gh release create "$tag" $assets --title "Blackwell TMA Windows build ($date)" --notes $notes
-          if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
-          Write-Host "Published release $tag with asset $assetName"
