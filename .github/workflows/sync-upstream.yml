@@ -1,0 +1,59 @@
+name: Sync upstream and Blackwell branches
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-upstream.yml
+      - .github/scripts/sync_blackwell.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blackwell-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      upstream_sha: ${{ steps.sync.outputs.upstream_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Sync main and check source parity
+        id: sync
+        run: python3 .github/scripts/sync_blackwell.py --branch main --push
+
+  variants:
+    needs: main
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [blackwell/cpasync, blackwell/cutlass, blackwell/tma]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Refresh variant while preserving local fixes
+        env:
+          SYNC_BRANCH: ${{ matrix.branch }}
+          UPSTREAM_SHA: ${{ needs.main.outputs.upstream_sha }}
+        run: python3 .github/scripts/sync_blackwell.py --branch "$SYNC_BRANCH" --upstream-sha "$UPSTREAM_SHA" --push
+      - name: Report variant status
+        if: always()
+        env:
+          SYNC_BRANCH: ${{ matrix.branch }}
+          RESULT: ${{ job.status }}
+        run: |
+          echo "${SYNC_BRANCH}: ${RESULT}. A source conflict leaves this branch unchanged; main remains synchronized." >> "$GITHUB_STEP_SUMMARY"
