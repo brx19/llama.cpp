@@ -11,7 +11,10 @@ PREFIX = "archive/branches-20260921/"
 
 
 def git(*args):
-    return subprocess.run(["git", *args], check=True, text=True, capture_output=True).stdout
+    result = subprocess.run(["git", *args], text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(result.stdout + result.stderr)
+    return result.stdout
 
 
 def remote_refs(pattern):
