@@ -1,0 +1,31 @@
+name: Archive unused fork branches
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/blackwell-branch-archive.json
+      - .github/scripts/prune_blackwell_branches.py
+      - .github/workflows/prune-blackwell-branches.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blackwell-branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Archive reviewed branch tips and remove unused branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/prune_blackwell_branches.py
